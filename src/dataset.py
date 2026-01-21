@@ -6,6 +6,10 @@ import torchvision.transforms as T
 from preprocess import preprocess_video
 
 
+# Normalization constant for elapsed time
+# Most cholecystectomies are under 60 minutes, so we normalize by this
+MAX_SURGERY_DURATION_MIN = 60.0
+
 
 class Cholec80TimeDataset(Dataset):
     """
@@ -14,91 +18,96 @@ class Cholec80TimeDataset(Dataset):
     Each item returns:
       - image sequence: Tensor [T, 3, H, W]
       - targets at current time:
-          * t_phase_remaining
-          * t_surgery_remaining
-          * phase_id 
-          * tools 
+          * t_phase_remaining: minutes until current phase ends
+          * t_surgery_remaining: minutes until surgery ends
+          * phase_id: current surgical phase (0-6)
+          * tools: binary vector of tool presence
+          * progress: fraction of surgery completed (0-1)
+          * elapsed_time: [T, 1] tensor of normalized elapsed times for LSTM input
     """
-    def __init__(self, samples, sequence_length=30, transform = None):
-
+    def __init__(self, samples, sequence_length=30, transform=None):
         self.sequence_length = sequence_length
         self.transform = transform
 
-
-        # structuring and grouping sampels by video
+        # Group samples by video
         self.samples_by_video = defaultdict(list)
         for s in samples:
             self.samples_by_video[s["video_id"]].append(s)
 
-        # sorting samples by time
+        # Sort samples by time within each video
         for vid in self.samples_by_video:
-            self.samples_by_video[vid] =  sorted(
+            self.samples_by_video[vid] = sorted(
                 self.samples_by_video[vid],
-                key = lambda x: x["time_sec"]
-                )
+                key=lambda x: x["time_sec"]
+            )
 
-        # indexing
+        # Pre-compute total duration for each video (for progress calculation)
+        self.video_duration = {}
+        for vid, seq in self.samples_by_video.items():
+            self.video_duration[vid] = seq[-1]["time_sec"]
+
+        # Build index of valid (video, end_frame) pairs
         self.index = []
         for vid, seq in self.samples_by_video.items():
             for i in range(sequence_length - 1, len(seq)):
                 self.index.append((vid, i))
-    
-    # returns the number of training exmaples 
+
     def __len__(self):
         return len(self.index)
-    
 
     def __getitem__(self, idx):
-
-        vid , end_idx = self.index[idx]
-
+        vid, end_idx = self.index[idx]
         seq = self.samples_by_video[vid]
+        total_duration = self.video_duration[vid]
 
-        start_idx = end_idx - self.sequence_length+ 1
-        # tale only the elements within this window
+        start_idx = end_idx - self.sequence_length + 1
         window = seq[start_idx:end_idx + 1]
 
+        # Load and transform images
         images = []
-        # window represents a training sample (one surgical frame with all the metadata)
-        # we convert these windows into tensor
-        for s in window:
-            img = Image.open(s["image_path"]).convert("RGB")
+        elapsed_times = []
 
-            # conversion needed (images to a short video clip)
+        for s in window:
+            # Load image
+            img = Image.open(s["image_path"]).convert("RGB")
             if self.transform:
                 img = self.transform(img)
-            
             images.append(img)
 
-        images = torch.stack(images)
+            # Collect elapsed time for each frame in sequence
+            # Normalize by max expected duration (60 min)
+            elapsed_min = s["time_sec"] / 60.0
+            elapsed_normalized = elapsed_min / MAX_SURGERY_DURATION_MIN
+            elapsed_times.append(elapsed_normalized)
 
-        # data of the last frame captured in the window
-        # represent present ground truth
-        current_target = seq[end_idx]
+        images = torch.stack(images)  # [T, 3, H, W]
 
-        # target is a learning signal
+        # Elapsed time tensor for LSTM input: [T, 1]
+        elapsed_time_tensor = torch.tensor(elapsed_times, dtype=torch.float32).unsqueeze(-1)
+
+        # Current frame targets (last frame in window)
+        current = seq[end_idx]
+
+        # Compute progress: what fraction of surgery is complete?
+        # This is a self-supervised signal (no manual annotation needed)
+        progress = current["time_sec"] / total_duration if total_duration > 0 else 0.0
+
         targets = {
-            # seconds remaining in the current phase
+            # Time remaining predictions (in minutes)
             "t_phase_remaining": torch.tensor(
-                current_target["t_phase_remaining"] / 60.0, dtype=torch.float32
+                current["t_phase_remaining"] / 60.0, dtype=torch.float32
             ),
-            # seconds remaining in the entire surgery
             "t_surgery_remaining": torch.tensor(
-                current_target["t_surgery_remaining"] / 60.0, dtype=torch.float32
+                current["t_surgery_remaining"] / 60.0, dtype=torch.float32
             ),
-            # surgical phase we are in 
-            "phase_id": torch.tensor(
-                current_target["phase_id"] , dtype=torch.long
-            ),
-            # tools present at the current second
-            "tools": torch.tensor(
-                current_target["tools"], dtype=torch.float32
-            ),
+            # Phase classification
+            "phase_id": torch.tensor(current["phase_id"], dtype=torch.long),
+            # Tool presence (for Task B)
+            "tools": torch.tensor(current["tools"], dtype=torch.float32),
+            # Progress: self-supervised signal (0-1)
+            "progress": torch.tensor(progress, dtype=torch.float32),
+            # Elapsed time sequence for LSTM input
+            "elapsed_time": elapsed_time_tensor,
         }
 
         return images, targets
-
-
-
-
-

@@ -17,39 +17,48 @@ def train_one_epoch(model, dataloader, optimizer, device):
     total = 0
     total_phase_mae = 0
     total_surgery_mae = 0
+    total_progress_mae = 0
 
     # iterate over the batches
     for batch in dataloader:
-        images, targets = batch 
+        images, targets = batch
         images = images.to(device)
 
-        # operate on the same device
-        #images = images.to(device)
-       # labels = targets["phase_id"].to(device)
+        # Get all targets and move to device
         phase_labels = targets["phase_id"].to(device)
         t_phase_gt = targets["t_phase_remaining"].to(device)
         t_surgery_gt = targets["t_surgery_remaining"].to(device)
+        progress_gt = targets["progress"].to(device)
+        elapsed_time = targets["elapsed_time"].to(device)  # [B, T, 1]
 
         # clear gradients to zero reset
         optimizer.zero_grad()
-        outputs = model(images)
 
-        # forward pass calling the CNN
+        # Forward pass - now includes elapsed time for temporal reasoning
+        outputs = model(images, elapsed_time)
+
+        # Extract predictions
         phase_logits = outputs["phase_logits"]
         t_phase_pred = outputs["t_phase_pred"]
         t_surgery_pred = outputs["t_surgery_pred"]
-        # compute loss
-        # by comparing prediction with truth
-        #loss = criterion(logits, labels)
+        progress_pred = outputs["progress_pred"]
 
+        # Compute all losses
         loss_phase = phase_loss_fn(phase_logits, phase_labels)
         loss_t_phase = time_loss_fn(t_phase_pred, t_phase_gt)
         loss_t_surgery = time_loss_fn(t_surgery_pred, t_surgery_gt)
-        total_phase_mae += time_loss_fn(t_phase_pred, t_phase_gt).item()
-        total_surgery_mae += time_loss_fn(t_surgery_pred, t_surgery_gt).item()
+        loss_progress = time_loss_fn(progress_pred, progress_gt)
 
+        # Track MAE for each task
+        total_phase_mae += loss_t_phase.item()
+        total_surgery_mae += loss_t_surgery.item()
+        total_progress_mae += loss_progress.item()
 
-        loss = loss = loss_t_phase + loss_t_surgery
+        # FIXED: Combined loss with all components weighted
+        # Phase classification helps model understand surgical workflow
+        # Progress prediction provides self-supervised signal
+        # Time predictions are the main objective
+        loss = 0.3 * loss_phase + 0.2 * loss_t_phase + 0.3 * loss_t_surgery + 0.2 * loss_progress
 
         # backpropagation
         loss.backward()
@@ -63,12 +72,13 @@ def train_one_epoch(model, dataloader, optimizer, device):
         correct += (preds == phase_labels).sum().item()
         total += phase_labels.size(0)
 
-        # return the average loss for this epoch, and the accuracy
+    # return the average loss for this epoch, and the accuracy
     return {
-    "loss": running_loss / len(dataloader),
-    "phase_mae": total_phase_mae / len(dataloader),
-    "surgery_mae": total_surgery_mae / len(dataloader),
-    "train_acc": correct / total
+        "loss": running_loss / len(dataloader),
+        "phase_mae": total_phase_mae / len(dataloader),
+        "surgery_mae": total_surgery_mae / len(dataloader),
+        "progress_mae": total_progress_mae / len(dataloader),
+        "train_acc": correct / total
     } 
 
 @torch.no_grad()
@@ -78,26 +88,40 @@ def validate_one_epoch(model, dataloader, device):
     time_loss_fn = nn.L1Loss()
     total_phase_mae = 0
     total_surgery_mae = 0
+    total_progress_mae = 0
+    correct = 0
+    total = 0
     n = 0
-
 
     for images, targets in dataloader:
         images = images.to(device)
         t_phase_gt = targets["t_phase_remaining"].to(device)
         t_surgery_gt = targets["t_surgery_remaining"].to(device)
+        progress_gt = targets["progress"].to(device)
+        elapsed_time = targets["elapsed_time"].to(device)
+        phase_labels = targets["phase_id"].to(device)
 
-
-        outputs = model(images)
+        outputs = model(images, elapsed_time)
         t_phase_pred = outputs["t_phase_pred"]
         t_surgery_pred = outputs["t_surgery_pred"]
+        progress_pred = outputs["progress_pred"]
+        phase_logits = outputs["phase_logits"]
 
         total_phase_mae += time_loss_fn(t_phase_pred, t_phase_gt).item()
         total_surgery_mae += time_loss_fn(t_surgery_pred, t_surgery_gt).item()
+        total_progress_mae += time_loss_fn(progress_pred, progress_gt).item()
+
+        # Track phase accuracy
+        preds = phase_logits.argmax(dim=1)
+        correct += (preds == phase_labels).sum().item()
+        total += phase_labels.size(0)
         n += 1
 
     return {
         "phase_mae": total_phase_mae / n,
-        "surgery_mae": total_surgery_mae / n
+        "surgery_mae": total_surgery_mae / n,
+        "progress_mae": total_progress_mae / n,
+        "val_acc": correct / total
     }
 
 
@@ -166,14 +190,14 @@ def train(model, train_dataset, val_dataset, device, epochs = 20, batch_size =4,
         val_phase_mae_history.append(val_metrics["phase_mae"])
         val_surgery_mae_history.append(val_metrics["surgery_mae"])
 
-        val_mae = val_metrics["phase_mae"]
+        # Use surgery MAE for early stopping (main objective)
+        val_mae = val_metrics["surgery_mae"]
         print(
-         f"Epoch {epoch+1:02d} | "
-        f"Train Phase MAE: {train_metrics['phase_mae']:.2f} | "
-        f"Val Phase MAE: {val_metrics['phase_mae']:.2f} | "
-        f"Train Surgery MAE: {train_metrics['surgery_mae']:.2f} | "
-        f"Val Surgery MAE: {val_metrics['surgery_mae']:.2f}",
-        f"Train Accuracy: {train_metrics['train_acc']:.2f}"
+            f"Epoch {epoch+1:02d} | "
+            f"Phase MAE: {train_metrics['phase_mae']:.2f}/{val_metrics['phase_mae']:.2f} | "
+            f"Surgery MAE: {train_metrics['surgery_mae']:.2f}/{val_metrics['surgery_mae']:.2f} | "
+            f"Progress MAE: {train_metrics['progress_mae']:.4f}/{val_metrics['progress_mae']:.4f} | "
+            f"Acc: {train_metrics['train_acc']:.2f}/{val_metrics['val_acc']:.2f}"
         )
 
         # EARLY STOPPING CHECK
