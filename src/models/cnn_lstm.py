@@ -23,7 +23,8 @@ class CNNLSTMPhaseModel(nn.Module):
     def __init__(self,
                  cnn,
                  hidden_dim=256,
-                 num_phases=7
+                 num_phases=7,
+                 dropout=0.5
     ):
         super().__init__()
 
@@ -37,6 +38,11 @@ class CNNLSTMPhaseModel(nn.Module):
             input_dim=feature_dim + 1,  # +1 for elapsed time
             hidden_dim=hidden_dim
         )
+
+        # Dropout for regularization - prevents overfitting by randomly
+        # zeroing neurons during training, forcing network to learn
+        # more robust features that don't depend on specific neurons
+        self.dropout = nn.Dropout(p=dropout)
 
         # Step 3: Prediction heads (multi-task learning)
         # Phase classification head
@@ -82,6 +88,9 @@ class CNNLSTMPhaseModel(nn.Module):
         # Use the last timestep's hidden state for predictions
         # This represents the model's understanding at the current moment
         current_state = lstm_out[:, -1, :]  # [B, hidden_dim]
+
+        # Apply dropout before prediction heads (only active during training)
+        current_state = self.dropout(current_state)
 
         # Step 4: Generate predictions from each head
         phase_logits = self.phase_head(current_state)  # [B, num_phases]

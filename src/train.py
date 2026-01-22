@@ -161,6 +161,8 @@ def train(model, train_dataset, val_dataset, device, epochs = 20, batch_size =4,
     patience_counter = 0
    
     # define the optimizer operating on model paramters
+    # Weight decay (L2 regularization) penalizes large weights,
+    # preventing the model from fitting noise in training data
     cnn_params = [p for p in model.cnn.parameters() if p.requires_grad]
     other_params = [
         p for name, p in model.named_parameters()
@@ -168,8 +170,8 @@ def train(model, train_dataset, val_dataset, device, epochs = 20, batch_size =4,
     ]
 
     optimizer = torch.optim.Adam([
-        {"params": other_params, "lr": 1e-4},
-        {"params": cnn_params, "lr": 1e-5},
+        {"params": other_params, "lr": 1e-4, "weight_decay": 1e-4},
+        {"params": cnn_params, "lr": 1e-5, "weight_decay": 1e-5},
     ])
 
      # create checkpoint directory
