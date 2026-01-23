@@ -22,16 +22,19 @@ class TemporalLSTM(nn.Module):
     - We typically use the last timestep's output for predictions
     """
 
-    def __init__(self, input_dim, hidden_dim, num_layers=1):
+    def __init__(self, input_dim, hidden_dim, num_layers=2, dropout=0.3):
         super().__init__()
         self.hidden_dim = hidden_dim
         self.num_layers = num_layers
 
+        # Using 2 layers with dropout between them for regularization
+        # Dropout only applies between LSTM layers (not after the last one)
         self.lstm = nn.LSTM(
             input_size=input_dim,
             hidden_size=hidden_dim,
             num_layers=num_layers,
-            batch_first=True  # Input shape: [Batch, Time, Features]
+            batch_first=True,  # Input shape: [Batch, Time, Features]
+            dropout=dropout if num_layers > 1 else 0  # Dropout between layers
         )
 
     def forward(self, feats_input):
