@@ -59,8 +59,9 @@ class ResNet50_FeatureExtractor(nn.Module):
             # Freeze early layers, unfreeze layer4
             # Early layers: generic features (edges, textures) - keep frozen
             # Layer4: high-level features - allow adaptation to surgical domain
+            # Note: In nn.Sequential, layer4 is at index 7 (names are "7.xxx")
             for name, param in self.backbone.named_parameters():
-                if "layer4" in name:
+                if name.startswith("7."):  # layer4 is index 7 in Sequential
                     param.requires_grad = True  # Allow surgical domain adaptation
                 else:
                     param.requires_grad = False  # Keep generic features frozen
