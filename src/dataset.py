@@ -108,6 +108,14 @@ class Cholec80TimeDataset(Dataset):
             "progress": torch.tensor(progress, dtype=torch.float32),
             # Elapsed time sequence for LSTM input
             "elapsed_time": elapsed_time_tensor,
+            # Task A: Start and end times for ALL phases (in minutes)
+            # [7] values each - one per surgical phase
+            "phase_start_remaining": torch.tensor(
+                [t / 60.0 for t in current["phase_start_remaining"]], dtype=torch.float32
+            ),
+            "phase_end_remaining": torch.tensor(
+                [t / 60.0 for t in current["phase_end_remaining"]], dtype=torch.float32
+            ),
         }
 
         return images, targets

@@ -112,7 +112,7 @@ def run_experiment(train_samples, val_samples, sequence_length, exp_name, freeze
     print(f"CNN trainable params: {cnn_trainable:,} / {cnn_total:,} ({100*cnn_trainable/cnn_total:.1f}%)")
 
     # Setup checkpoint path
-    ckpt_dir = Path("checkpoints")
+    ckpt_dir = Path("checkpoints5")
     ckpt_dir.mkdir(exist_ok=True)
     checkpoint_path = ckpt_dir / f"{exp_name}_seq{sequence_length}_best.pt"
 
@@ -137,7 +137,7 @@ def run_experiment(train_samples, val_samples, sequence_length, exp_name, freeze
     best_val_surgery_mae_sec = min(val_surgery_mae_sec)
 
     # Create plots
-    plots_dir = Path("plots")
+    plots_dir = Path("plots5")
     plots_dir.mkdir(exist_ok=True)
 
     epochs_range = range(1, len(train_phase_mae_sec) + 1)
@@ -177,6 +177,8 @@ def run_experiment(train_samples, val_samples, sequence_length, exp_name, freeze
         "checkpoint_path": str(checkpoint_path),
         "train_phase_mae_sec": train_phase_mae_sec,
         "val_phase_mae_sec": val_phase_mae_sec,
+        "train_surgery_mae_sec": train_surgery_mae_sec,
+        "val_surgery_mae_sec": val_surgery_mae_sec,
     }
 
 
@@ -202,38 +204,29 @@ if __name__ == "__main__":
     print(f"Train: {len(train_samples)}, Val: {len(val_samples)}, Test: {len(test_samples)}")
 
     # ===============================
-    # Experiment: Compare frozen vs unfrozen CNN
+    # Task A Complete: Sequence Length Experiments
+    # All with Unfrozen Layer4 (since frozen vs unfrozen showed minimal difference)
     # ===============================
     results_all = []
 
-    # Test with sequence length 30 (30 seconds of context)
-    seq_len = 30
+    # Test with different sequence lengths to study temporal context effect
+    sequence_lengths = [15, 30, 60]
 
-    # Experiment 1: Frozen CNN (only LSTM trains)
-    results_frozen = run_experiment(
-        train_samples=train_samples,
-        val_samples=val_samples,
-        sequence_length=seq_len,
-        exp_name="Exp_FrozenCNN",
-        freeze_cnn=True
-    )
-    results_all.append(("Frozen CNN", results_frozen))
-
-    # Experiment 2: Unfrozen layer4 (CNN adapts to surgical domain)
-    results_unfrozen = run_experiment(
-        train_samples=train_samples,
-        val_samples=val_samples,
-        sequence_length=seq_len,
-        exp_name="Exp_UnfrozenL4",
-        freeze_cnn=False
-    )
-    results_all.append(("Unfrozen Layer4", results_unfrozen))
+    for seq_len in sequence_lengths:
+        results = run_experiment(
+            train_samples=train_samples,
+            val_samples=val_samples,
+            sequence_length=seq_len,
+            exp_name=f"Exp_Seq{seq_len}",
+            freeze_cnn=False  # Unfrozen Layer4 for all
+        )
+        results_all.append((f"Seq={seq_len}", results))
 
     # ===============================
     # Summary
     # ===============================
     print("\n" + "="*60)
-    print("EXPERIMENT SUMMARY")
+    print("EXPERIMENT SUMMARY - Task A Complete")
     print("="*60)
     for name, r in results_all:
         print(f"{name:20s} | Phase MAE: {r['best_val_phase_mae_sec']:6.1f}s | Surgery MAE: {r['best_val_surgery_mae_sec']:6.1f}s")
@@ -246,11 +239,26 @@ if __name__ == "__main__":
 
     plt.xlabel("Epoch")
     plt.ylabel("Validation Phase MAE (seconds)")
-    plt.title("Frozen vs Unfrozen CNN Comparison")
+    plt.title("Effect of Sequence Length on Prediction (Task A)")
     plt.legend()
     plt.grid(True)
     plt.tight_layout()
-    plt.savefig(Path("plots") / "frozen_vs_unfrozen_comparison.png", dpi=150)
+    plt.savefig(Path("plots5") / "sequence_length_comparison.png", dpi=150)
+    plt.close()
+
+    # Surgery MAE comparison plot
+    plt.figure(figsize=(10, 6))
+    for name, r in results_all:
+        epochs = range(1, len(r['val_surgery_mae_sec']) + 1)
+        plt.plot(epochs, r['val_surgery_mae_sec'], label=name, marker='o')
+
+    plt.xlabel("Epoch")
+    plt.ylabel("Validation Surgery MAE (seconds)")
+    plt.title("Effect of Sequence Length on Surgery Time Prediction")
+    plt.legend()
+    plt.grid(True)
+    plt.tight_layout()
+    plt.savefig(Path("plots5") / "sequence_length_surgery_mae.png", dpi=150)
     plt.close()
 
     print("\nTraining complete!")

@@ -59,6 +59,12 @@ class CNNLSTMPhaseModel(nn.Module):
             nn.Sigmoid()  # Constrain output to [0, 1]
         )
 
+        # Task A: Predict start/end times for ALL phases
+        # Each head outputs 7 values (one per phase) in minutes
+        # These predict "time remaining until phase X starts/ends"
+        self.phase_starts_head = nn.Linear(hidden_dim, num_phases)  # [B, 7]
+        self.phase_ends_head = nn.Linear(hidden_dim, num_phases)    # [B, 7]
+
     def forward(self, x, elapsed_time):
         """
         Args:
@@ -98,9 +104,16 @@ class CNNLSTMPhaseModel(nn.Module):
         t_surgery_pred = self.surgery_time_head(current_state).squeeze(-1)  # [B]
         progress_pred = self.progress_head(current_state).squeeze(-1)  # [B]
 
+        # Task A: Predict all phase start/end times
+        # ReLU ensures non-negative times (can't have negative remaining time)
+        phase_starts_pred = torch.relu(self.phase_starts_head(current_state))  # [B, 7]
+        phase_ends_pred = torch.relu(self.phase_ends_head(current_state))      # [B, 7]
+
         return {
             "phase_logits": phase_logits,
             "t_phase_pred": t_phase_pred,
             "t_surgery_pred": t_surgery_pred,
-            "progress_pred": progress_pred
+            "progress_pred": progress_pred,
+            "phase_starts_pred": phase_starts_pred,  # [B, 7] time until each phase starts
+            "phase_ends_pred": phase_ends_pred,      # [B, 7] time until each phase ends
         }

@@ -18,6 +18,8 @@ def train_one_epoch(model, dataloader, optimizer, device):
     total_phase_mae = 0
     total_surgery_mae = 0
     total_progress_mae = 0
+    total_phase_starts_mae = 0
+    total_phase_ends_mae = 0
 
     # iterate over the batches
     for batch in dataloader:
@@ -30,6 +32,9 @@ def train_one_epoch(model, dataloader, optimizer, device):
         t_surgery_gt = targets["t_surgery_remaining"].to(device)
         progress_gt = targets["progress"].to(device)
         elapsed_time = targets["elapsed_time"].to(device)  # [B, T, 1]
+        # Task A: All phase start/end times
+        phase_starts_gt = targets["phase_start_remaining"].to(device)  # [B, 7]
+        phase_ends_gt = targets["phase_end_remaining"].to(device)      # [B, 7]
 
         # clear gradients to zero reset
         optimizer.zero_grad()
@@ -42,23 +47,36 @@ def train_one_epoch(model, dataloader, optimizer, device):
         t_phase_pred = outputs["t_phase_pred"]
         t_surgery_pred = outputs["t_surgery_pred"]
         progress_pred = outputs["progress_pred"]
+        phase_starts_pred = outputs["phase_starts_pred"]  # [B, 7]
+        phase_ends_pred = outputs["phase_ends_pred"]      # [B, 7]
 
         # Compute all losses
         loss_phase = phase_loss_fn(phase_logits, phase_labels)
         loss_t_phase = time_loss_fn(t_phase_pred, t_phase_gt)
         loss_t_surgery = time_loss_fn(t_surgery_pred, t_surgery_gt)
         loss_progress = time_loss_fn(progress_pred, progress_gt)
+        # Task A: Loss for all phase start/end times
+        loss_phase_starts = time_loss_fn(phase_starts_pred, phase_starts_gt)
+        loss_phase_ends = time_loss_fn(phase_ends_pred, phase_ends_gt)
 
         # Track MAE for each task
         total_phase_mae += loss_t_phase.item()
         total_surgery_mae += loss_t_surgery.item()
         total_progress_mae += loss_progress.item()
+        total_phase_starts_mae += loss_phase_starts.item()
+        total_phase_ends_mae += loss_phase_ends.item()
 
-        # FIXED: Combined loss with all components weighted
+        # Combined loss with all components weighted
         # Phase classification helps model understand surgical workflow
         # Progress prediction provides self-supervised signal
         # Time predictions are the main objective
-        loss = 0.3 * loss_phase + 0.2 * loss_t_phase + 0.3 * loss_t_surgery + 0.2 * loss_progress
+        # Task A phase times get equal weight to surgery time
+        loss = (0.2 * loss_phase +
+                0.15 * loss_t_phase +
+                0.25 * loss_t_surgery +
+                0.1 * loss_progress +
+                0.15 * loss_phase_starts +  # Task A
+                0.15 * loss_phase_ends)     # Task A
 
         # backpropagation
         loss.backward()
@@ -78,6 +96,8 @@ def train_one_epoch(model, dataloader, optimizer, device):
         "phase_mae": total_phase_mae / len(dataloader),
         "surgery_mae": total_surgery_mae / len(dataloader),
         "progress_mae": total_progress_mae / len(dataloader),
+        "phase_starts_mae": total_phase_starts_mae / len(dataloader),
+        "phase_ends_mae": total_phase_ends_mae / len(dataloader),
         "train_acc": correct / total
     } 
 
@@ -89,6 +109,8 @@ def validate_one_epoch(model, dataloader, device):
     total_phase_mae = 0
     total_surgery_mae = 0
     total_progress_mae = 0
+    total_phase_starts_mae = 0
+    total_phase_ends_mae = 0
     correct = 0
     total = 0
     n = 0
@@ -100,16 +122,22 @@ def validate_one_epoch(model, dataloader, device):
         progress_gt = targets["progress"].to(device)
         elapsed_time = targets["elapsed_time"].to(device)
         phase_labels = targets["phase_id"].to(device)
+        phase_starts_gt = targets["phase_start_remaining"].to(device)
+        phase_ends_gt = targets["phase_end_remaining"].to(device)
 
         outputs = model(images, elapsed_time)
         t_phase_pred = outputs["t_phase_pred"]
         t_surgery_pred = outputs["t_surgery_pred"]
         progress_pred = outputs["progress_pred"]
         phase_logits = outputs["phase_logits"]
+        phase_starts_pred = outputs["phase_starts_pred"]
+        phase_ends_pred = outputs["phase_ends_pred"]
 
         total_phase_mae += time_loss_fn(t_phase_pred, t_phase_gt).item()
         total_surgery_mae += time_loss_fn(t_surgery_pred, t_surgery_gt).item()
         total_progress_mae += time_loss_fn(progress_pred, progress_gt).item()
+        total_phase_starts_mae += time_loss_fn(phase_starts_pred, phase_starts_gt).item()
+        total_phase_ends_mae += time_loss_fn(phase_ends_pred, phase_ends_gt).item()
 
         # Track phase accuracy
         preds = phase_logits.argmax(dim=1)
@@ -121,6 +149,8 @@ def validate_one_epoch(model, dataloader, device):
         "phase_mae": total_phase_mae / n,
         "surgery_mae": total_surgery_mae / n,
         "progress_mae": total_progress_mae / n,
+        "phase_starts_mae": total_phase_starts_mae / n,
+        "phase_ends_mae": total_phase_ends_mae / n,
         "val_acc": correct / total
     }
 
@@ -175,7 +205,7 @@ def train(model, train_dataset, val_dataset, device, epochs = 20, batch_size =4,
     ])
 
      # create checkpoint directory
-    ckpt_dir = Path("checkpoints1")
+    ckpt_dir = Path("checkpoints5")
     ckpt_dir.mkdir(exist_ok=True)
     # repeating the training process 
     for epoch in range(epochs):
@@ -198,7 +228,8 @@ def train(model, train_dataset, val_dataset, device, epochs = 20, batch_size =4,
             f"Epoch {epoch+1:02d} | "
             f"Phase MAE: {train_metrics['phase_mae']:.2f}/{val_metrics['phase_mae']:.2f} | "
             f"Surgery MAE: {train_metrics['surgery_mae']:.2f}/{val_metrics['surgery_mae']:.2f} | "
-            f"Progress MAE: {train_metrics['progress_mae']:.4f}/{val_metrics['progress_mae']:.4f} | "
+            f"PhaseStarts MAE: {train_metrics['phase_starts_mae']:.2f}/{val_metrics['phase_starts_mae']:.2f} | "
+            f"PhaseEnds MAE: {train_metrics['phase_ends_mae']:.2f}/{val_metrics['phase_ends_mae']:.2f} | "
             f"Acc: {train_metrics['train_acc']:.2f}/{val_metrics['val_acc']:.2f}"
         )
 

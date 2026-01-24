@@ -135,6 +135,62 @@ def add_time_targets(samples):
 
     return samples
 
+
+def add_all_phase_times(samples, num_phases=7):
+    """
+    Compute start and end times for ALL phases (Task A requirement).
+
+    For each sample, adds:
+    - 'phase_start_remaining': [7] time until each phase STARTS (0 if already started)
+    - 'phase_end_remaining': [7] time until each phase ENDS (0 if already ended)
+
+    This allows the model to predict the complete surgical timeline:
+    "Phase 3 will start in 5 minutes and end in 18 minutes"
+    """
+    # Step 1: Find absolute start/end times for each phase in this video
+    phase_start_abs = {}  # phase_id -> start time in seconds
+    phase_end_abs = {}    # phase_id -> end time in seconds
+
+    current_phase = samples[0]["phase_id"]
+    phase_start_abs[current_phase] = samples[0]["time_sec"]
+
+    for i in range(1, len(samples)):
+        if samples[i]["phase_id"] != current_phase:
+            # Previous phase ended
+            phase_end_abs[current_phase] = samples[i - 1]["time_sec"]
+            # New phase started
+            current_phase = samples[i]["phase_id"]
+            phase_start_abs[current_phase] = samples[i]["time_sec"]
+
+    # Final phase ends at last sample
+    phase_end_abs[current_phase] = samples[-1]["time_sec"]
+
+    # Step 2: For each sample, compute remaining time until each phase starts/ends
+    for s in samples:
+        current_time = s["time_sec"]
+
+        phase_start_remaining = []
+        phase_end_remaining = []
+
+        for phase_id in range(num_phases):
+            if phase_id in phase_start_abs:
+                # Phase exists in this video
+                start_remaining = max(0, phase_start_abs[phase_id] - current_time)
+                end_remaining = max(0, phase_end_abs[phase_id] - current_time)
+            else:
+                # Phase doesn't exist in this video (rare edge case)
+                # Use -1 to indicate "not applicable" or 0
+                start_remaining = 0
+                end_remaining = 0
+
+            phase_start_remaining.append(start_remaining)
+            phase_end_remaining.append(end_remaining)
+
+        s["phase_start_remaining"] = phase_start_remaining  # [7] in seconds
+        s["phase_end_remaining"] = phase_end_remaining      # [7] in seconds
+
+    return samples
+
 # -------------------------
 # Main entry
 # -------------------------
@@ -161,6 +217,7 @@ def preprocess_video(video_id):
     )
 
     samples = add_time_targets(samples)
+    samples = add_all_phase_times(samples)  # Task A: predict all phase start/end times
     return samples
 
 if __name__ == "__main__":
