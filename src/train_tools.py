@@ -314,20 +314,23 @@ def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
     print(f"Batch size: {batch_size}, Learning rate: {lr}")
 
     # Create DataLoaders
+    # num_workers=4 for parallel data loading (much faster)
     train_loader = DataLoader(
         train_dataset,
         batch_size=batch_size,
         shuffle=True,
-        num_workers=0,
-        pin_memory=True if device == "cuda" else False
+        num_workers=4,
+        pin_memory=True if device == "cuda" else False,
+        persistent_workers=True
     )
 
     val_loader = DataLoader(
         val_dataset,
         batch_size=batch_size,
         shuffle=False,
-        num_workers=0,
-        pin_memory=True if device == "cuda" else False
+        num_workers=4,
+        pin_memory=True if device == "cuda" else False,
+        persistent_workers=True
     )
 
     # Compute class weights for tool imbalance

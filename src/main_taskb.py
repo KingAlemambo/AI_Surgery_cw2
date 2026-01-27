@@ -111,7 +111,7 @@ def run_baseline_experiment(train_samples, val_samples, sequence_length=30):
         val_dataset=val_dataset,
         device=device,
         epochs=20,
-        batch_size=4,
+        batch_size=8,  # Increased for faster training
         checkpoint_path=str(checkpoint_path)
     )
 
@@ -178,6 +178,13 @@ if __name__ == "__main__":
     # Split by video (not by frame) to prevent data leakage
     train_samples, val_samples, test_samples = split_by_video(all_samples)
     print(f"Train: {len(train_samples)}, Val: {len(val_samples)}, Test: {len(test_samples)}")
+
+    # Subsample for faster training (use every 3rd sample)
+    # This reduces ~123k samples to ~41k, making epochs ~3x faster
+    SUBSAMPLE_FACTOR = 3
+    train_samples = train_samples[::SUBSAMPLE_FACTOR]
+    val_samples = val_samples[::SUBSAMPLE_FACTOR]
+    print(f"After subsampling (1/{SUBSAMPLE_FACTOR}): Train: {len(train_samples)}, Val: {len(val_samples)}")
 
     # ==========================================
     # Run Baseline Experiment
