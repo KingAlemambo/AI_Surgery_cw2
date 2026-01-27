@@ -14,6 +14,7 @@ from torch.utils.data import DataLoader
 from pathlib import Path
 import numpy as np
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score
+from tqdm import tqdm
 
 
 def compute_class_weights(dataset, num_tools=7):
@@ -24,7 +25,7 @@ def compute_class_weights(dataset, num_tools=7):
     This gives higher weight to rare tools like SpecimenBag.
 
     Args:
-        dataset: Dataset with tool labels
+        dataset: Dataset with tool labels (uses index to access raw samples)
         num_tools: Number of tools (default 7 for Cholec80)
 
     Returns:
@@ -33,9 +34,12 @@ def compute_class_weights(dataset, num_tools=7):
     tool_counts = torch.zeros(num_tools)
     total_samples = 0
 
-    for i in range(len(dataset)):
-        _, targets = dataset[i]
-        tools = targets["tools"]
+    # Fast path: access raw sample data without loading images
+    # The dataset.index contains (video_id, end_idx) pairs
+    # We access the underlying samples directly
+    for vid, end_idx in dataset.index:
+        sample = dataset.samples_by_video[vid][end_idx]
+        tools = torch.tensor(sample["tools"], dtype=torch.float32)
         tool_counts += tools
         total_samples += 1
 
@@ -137,7 +141,8 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
     phase_correct = 0
     phase_total = 0
 
-    for batch in dataloader:
+    pbar = tqdm(dataloader, desc="Training", leave=False)
+    for batch in pbar:
         images, targets = batch
 
         # Move data to device
@@ -169,6 +174,9 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
         total_phase_loss += loss_phase.item()
         total_tool_loss += loss_tools.item()
         num_batches += 1
+
+        # Update progress bar
+        pbar.set_postfix({"loss": f"{loss.item():.3f}"})
 
         # Track metrics
         with torch.no_grad():
@@ -231,7 +239,8 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None):
     phase_correct = 0
     phase_total = 0
 
-    for batch in dataloader:
+    pbar = tqdm(dataloader, desc="Validating", leave=False)
+    for batch in pbar:
         images, targets = batch
 
         # Move data to device
