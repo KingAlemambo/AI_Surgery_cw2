@@ -38,9 +38,9 @@ def load_task_a_model(checkpoint_path, device):
     cnn = ResNet50_FeatureExtractor(pretrained=True, freeze=False)
     model = CNNLSTMPhaseModel(cnn=cnn)
 
-    # Load checkpoint
-    checkpoint = torch.load(checkpoint_path, map_location=device)
-    model.load_state_dict(checkpoint["model_state_dict"])
+    # Load checkpoint - Task A saves state_dict directly (not as dict with keys)
+    state_dict = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(state_dict)
 
     # Move to device and freeze
     model.to(device)
