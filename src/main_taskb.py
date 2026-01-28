@@ -19,9 +19,12 @@ from pathlib import Path
 from models.cnn import ResNet50_FeatureExtractor
 from models.tool_detector import ToolDetectorBaseline, ToolDetectorTimed, CHOLEC80_TOOLS
 from dataset import Cholec80TimeDataset
-from train_tools import train
+from train_tools import train, load_task_a_model
 from preprocess import preprocess_video
 from utils import split_by_video
+
+# Task A checkpoint path (best model from sequence length experiments)
+TASK_A_CHECKPOINT = Path("checkpoints5") / "Exp_Seq30_seq30_best.pt"
 
 # -------------------------
 # Constants
@@ -123,17 +126,18 @@ def run_baseline_experiment(train_samples, val_samples, sequence_length=30):
 
 def run_timed_experiment(train_samples, val_samples, sequence_length=30):
     """
-    Run the timed tool detection experiment (WITH time features).
+    Run the timed tool detection experiment (WITH PREDICTED time features from Task A).
 
-    This is the comparison experiment for Task B:
+    This is the KEY experiment for Task B:
     - CNN + LSTM architecture
     - Multi-task: tool detection + phase classification
-    - WITH time information (elapsed_time as input)
+    - WITH PREDICTED time from Task A model (not ground truth!)
 
-    Hypothesis: Knowing where we are in surgery helps predict which tools are present.
+    Hypothesis: Using estimated surgical progress from Task A improves tool detection.
+    This tests whether the time predictions from Task A are useful for a downstream task.
     """
     print("\n" + "=" * 80)
-    print("TASK B - TIMED EXPERIMENT: Tool Detection (WITH Time Features)")
+    print("TASK B - TIMED EXPERIMENT: Tool Detection (WITH PREDICTED Time from Task A)")
     print("=" * 80)
 
     # Create datasets (same as baseline)
@@ -151,12 +155,20 @@ def run_timed_experiment(train_samples, val_samples, sequence_length=30):
 
     print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
 
-    # Create model - ToolDetectorTimed instead of Baseline
-    cnn = ResNet50_FeatureExtractor(pretrained=True, freeze=False)
-    model = ToolDetectorTimed(cnn=cnn, num_time_features=1)  # 1 time feature: elapsed_time
-
     device = "cuda" if torch.cuda.is_available() else "cpu"
     print(f"Using device: {device}")
+
+    # Load pretrained Task A model (frozen) for generating time predictions
+    if not TASK_A_CHECKPOINT.exists():
+        raise FileNotFoundError(
+            f"Task A checkpoint not found at {TASK_A_CHECKPOINT}\n"
+            "Please ensure you have the trained Task A model."
+        )
+    task_a_model = load_task_a_model(str(TASK_A_CHECKPOINT), device)
+
+    # Create Task B model - ToolDetectorTimed
+    cnn = ResNet50_FeatureExtractor(pretrained=True, freeze=False)
+    model = ToolDetectorTimed(cnn=cnn, num_time_features=1)  # 1 time feature: predicted_surgery_remaining
     model.to(device)
 
     # Count parameters
@@ -170,7 +182,7 @@ def run_timed_experiment(train_samples, val_samples, sequence_length=30):
     ckpt_dir.mkdir(exist_ok=True)
     checkpoint_path = ckpt_dir / "timed_tool_detector.pt"
 
-    # Train with use_time=True
+    # Train with use_time=True and Task A model for predictions
     history = train(
         model=model,
         train_dataset=train_dataset,
@@ -179,7 +191,8 @@ def run_timed_experiment(train_samples, val_samples, sequence_length=30):
         epochs=20,
         batch_size=8,
         checkpoint_path=str(checkpoint_path),
-        use_time=True  # KEY DIFFERENCE: pass time features to model
+        use_time=True,  # Use time features
+        task_a_model=task_a_model  # KEY: Use PREDICTED time from Task A!
     )
 
     # Plot results

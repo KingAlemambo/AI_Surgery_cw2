@@ -24,7 +24,7 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-Accurate prediction of surgical duration and tool usage is essential for operating room scheduling, resource allocation, and intraoperative decision support. We present a deep learning framework for surgical workflow analysis using the Cholec80 dataset of laparoscopic cholecystectomy videos. Our approach combines a pretrained ResNet-50 feature extractor with a Long Short-Term Memory (LSTM) network for temporal modeling. For duration prediction (Task A), we predict remaining phase and surgery duration, as well as the start and end times of all surgical phases, achieving a mean absolute error of 7.27 minutes for current phase prediction and 13.80 minutes for total surgery remaining time. For tool detection (Task B), we investigate whether estimated temporal information can improve surgical tool detection through multi-task learning. We compare a baseline model against a time-augmented version that incorporates predicted surgical progress. Our experiments demonstrate \todo{add Task B conclusion}. We provide ablation studies on sequence length, CNN fine-tuning strategies, and the effect of temporal features on tool detection performance.
+Accurate prediction of surgical duration and tool usage is essential for operating room scheduling, resource allocation, and intraoperative decision support. We present a deep learning framework for surgical workflow analysis using the Cholec80 dataset of laparoscopic cholecystectomy videos. Our approach combines a pretrained ResNet-50 feature extractor with a Long Short-Term Memory (LSTM) network for temporal modeling. For duration prediction (Task A), we predict remaining phase and surgery duration, as well as the start and end times of all surgical phases, achieving a mean absolute error of 7.27 minutes for current phase prediction and 13.80 minutes for total surgery remaining time. For tool detection (Task B), we investigate whether estimated temporal information can improve surgical tool detection through multi-task learning. We compare a baseline model against a time-augmented version that incorporates predicted surgical progress. Our experiments demonstrate that incorporating elapsed time as an additional input feature yields a modest improvement in tool detection (mAP: 0.960 $\rightarrow$ 0.962) and a more substantial improvement in phase classification accuracy (89.2\% $\rightarrow$ 90.5\%). We provide ablation studies on sequence length, CNN fine-tuning strategies, and the effect of temporal features on tool detection performance.
 
 \keywords{Surgical workflow analysis \and Duration prediction \and Tool detection \and Deep learning \and LSTM}
 \end{abstract}
@@ -265,67 +265,87 @@ Table~\ref{tab:taskb} compares the baseline model (no time features) against the
 \centering
 \caption{Tool detection performance: Baseline vs Time-Augmented.}
 \label{tab:taskb}
-\begin{tabular}{lccc}
+\begin{tabular}{lcc}
 \toprule
 Model & mAP & Phase Accuracy \\
 \midrule
-Baseline (no time) & \result{X.XXX} & \result{X.XX} \\
-Timed (with time features) & \result{X.XXX} & \result{X.XX} \\
+Baseline (no time) & 0.960 & 89.2\% \\
+Timed (with elapsed time) & \textbf{0.962} & \textbf{90.5\%} \\
 \midrule
-Improvement & \result{+X.XXX} & \result{+X.XX} \\
+Improvement & +0.002 & +1.3\% \\
 \bottomrule
 \end{tabular}
 \end{table}
+
+Both models achieve excellent tool detection performance, with the baseline already reaching 0.960 mAP. The time-augmented model provides a modest improvement of +0.002 mAP for tool detection, but a more notable +1.3\% improvement in phase classification accuracy. This suggests that elapsed time is more directly informative for phase recognition than for tool detection.
 
 \subsubsection{Per-Tool Analysis}
 
-Table~\ref{tab:per_tool} shows per-tool Average Precision for both models.
+Table~\ref{tab:per_tool} shows per-tool Average Precision for both models, revealing which tools benefit from temporal information.
 
 \begin{table}[h]
 \centering
-\caption{Per-tool Average Precision comparison.}
+\caption{Per-tool Average Precision comparison. Tools sorted by improvement from time features.}
 \label{tab:per_tool}
-\begin{tabular}{lccc}
+\begin{tabular}{lcccc}
 \toprule
-Tool & Frequency & Baseline AP & Timed AP \\
+Tool & Frequency & Baseline AP & Timed AP & $\Delta$ \\
 \midrule
-Grasper & 60.6\% & \result{X.XX} & \result{X.XX} \\
-Hook & 55.5\% & \result{X.XX} & \result{X.XX} \\
-SpecimenBag & 6.6\% & \result{X.XX} & \result{X.XX} \\
-Irrigator & 6.5\% & \result{X.XX} & \result{X.XX} \\
-Bipolar & 5.2\% & \result{X.XX} & \result{X.XX} \\
-Clipper & 3.5\% & \result{X.XX} & \result{X.XX} \\
-Scissors & 1.9\% & \result{X.XX} & \result{X.XX} \\
+Grasper & 60.6\% & 0.913 & \textbf{0.931} & +0.018 \\
+Clipper & 3.5\% & 0.964 & \textbf{0.972} & +0.008 \\
+Irrigator & 6.5\% & 0.961 & \textbf{0.966} & +0.005 \\
+SpecimenBag & 6.6\% & 0.978 & \textbf{0.981} & +0.003 \\
+Hook & 55.5\% & 0.989 & 0.990 & +0.001 \\
+Bipolar & 5.2\% & \textbf{0.959} & 0.956 & -0.003 \\
+Scissors & 1.9\% & \textbf{0.956} & 0.938 & -0.018 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\todo{Add analysis of which tools benefit most from time features}
+\textbf{Analysis of Per-Tool Results:}
+
+\textit{Grasper} shows the largest improvement (+0.018 AP) from time features. Despite being the most frequent tool (60.6\%), it had the lowest baseline AP (0.913) because it appears throughout surgery, making it difficult to detect its \textit{absence}. Time context helps because Grasper usage patterns change across surgical phases.
+
+\textit{Clipper} and \textit{SpecimenBag} also benefit from time features. These tools are phase-specific: Clipper predominantly appears during ClippingCutting, and SpecimenBag only during GallbladderPackaging near the end of surgery. Knowing elapsed time helps predict their presence.
+
+\textit{Scissors} shows decreased performance (-0.018 AP) with time features. This rare tool (1.9\% frequency) may be subject to noise, or the model may overfit to temporal patterns that don't generalize.
+
+\textit{Hook} achieves the highest AP (0.989-0.990) in both models, likely due to its distinctive visual appearance during dissection phases.
 
 % ============================================================================
 % DISCUSSION
 % ============================================================================
 \section{Discussion}
 
-\todo{Summarize key findings}
+Our experiments address three research questions with the following findings:
+
+\textbf{RQ1 (Sequence Length):} The optimal temporal context is 30 seconds ($T=30$ frames). Shorter sequences (15s) lack sufficient context for understanding surgical progression, while longer sequences (60s) introduce noise from outdated visual information. This suggests a balance between capturing temporal patterns and maintaining relevance to the current surgical state.
+
+\textbf{RQ2 (Phase Timing Prediction):} Multi-output prediction of phase start/end times enables comprehensive surgical timeline estimation, though accuracy varies by phase. Earlier phases are predicted more accurately than later phases due to cumulative uncertainty.
+
+\textbf{RQ3 (Time Features for Tool Detection):} Our hypothesis that temporal information improves tool detection is \textit{partially supported}. The improvement in mAP is modest (+0.002), indicating that visual features dominate tool detection. However, specific tools benefit more: Grasper (+0.018 AP) and phase-specific tools like Clipper (+0.008 AP) show meaningful improvements. The larger gain in phase accuracy (+1.3\%) confirms that elapsed time is more directly relevant to surgical phase than to tool presence.
 
 \textbf{Limitations:}
 \begin{itemize}
-    \item \textbf{Single dataset}: Results may not generalize to other surgical procedures or institutions.
-    \item \textbf{Class imbalance}: Rare tools (SpecimenBag, Scissors) remain challenging despite class weighting.
-    \item \textbf{Temporal resolution}: 1 fps sampling may miss rapid tool changes.
+    \item \textbf{Single dataset}: Results on Cholec80 may not generalize to other procedures or institutions.
+    \item \textbf{Class imbalance}: Despite class weighting, rare tools (Scissors: 1.9\%) show higher variance.
+    \item \textbf{Temporal resolution}: 1 fps sampling may miss brief tool appearances.
+    \item \textbf{Time feature simplicity}: We used only elapsed time; richer temporal features (e.g., predicted remaining time from Task A) may provide greater benefit.
 \end{itemize}
 
-\textbf{Clinical Implications:} \todo{Discuss practical value}
+\textbf{Clinical Implications:}
+A surgery duration MAE of 13.8 minutes enables meaningful OR scheduling improvements. Tool detection at 0.96 mAP could support automated surgical documentation. The finding that visual features dominate over temporal cues suggests robust performance even without accurate timing information.
 
 % ============================================================================
 % CONCLUSION
 % ============================================================================
 \section{Conclusion}
 
-\todo{Summarize findings and future work}
+We presented a CNN-LSTM framework for surgical workflow analysis addressing duration prediction and tool detection. For duration prediction, we achieved 7.27 minutes MAE for phase remaining time and 13.80 minutes for surgery remaining time, with optimal performance at 30-second temporal context. For tool detection, our multi-task baseline achieved 0.960 mAP, with time-augmented features providing modest improvement to 0.962 mAP. The largest per-tool improvement was observed for Grasper (+1.8\% AP), the tool with most variable temporal usage patterns.
 
-Future directions include exploring Transformer-based temporal modeling, incorporating patient-specific features (BMI, previous surgeries), and investigating real-time deployment considerations.
+Our key finding is that while temporal context benefits tool detection, the effect is smaller than hypothesized---visual features remain the dominant signal for tool recognition. This suggests that surgical tool detection systems can perform well even without precise temporal information, which is encouraging for real-world deployment.
+
+Future directions include exploring Transformer architectures for temporal modeling, incorporating richer time features such as predicted remaining durations, and validating on additional surgical procedure types.
 
 % ============================================================================
 % REFERENCES

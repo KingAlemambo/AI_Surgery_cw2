@@ -6,6 +6,7 @@ This handles:
 - Class weighting for tool imbalance
 - Metrics: mAP for tools, accuracy for phase
 - Early stopping based on validation mAP
+- Using PREDICTED time from Task A model (not ground truth elapsed time)
 """
 
 import torch
@@ -15,6 +16,42 @@ from pathlib import Path
 import numpy as np
 from sklearn.metrics import average_precision_score, f1_score, precision_score, recall_score
 from tqdm import tqdm
+
+from models.cnn import ResNet50_FeatureExtractor
+from models.cnn_lstm import CNNLSTMPhaseModel
+
+
+def load_task_a_model(checkpoint_path, device):
+    """
+    Load pretrained Task A model for generating time predictions.
+
+    Args:
+        checkpoint_path: Path to Task A checkpoint (.pt file)
+        device: cuda or cpu
+
+    Returns:
+        model: Loaded Task A model in eval mode (frozen)
+    """
+    print(f"Loading Task A model from: {checkpoint_path}")
+
+    # Create model architecture (same as training)
+    cnn = ResNet50_FeatureExtractor(pretrained=True, freeze=False)
+    model = CNNLSTMPhaseModel(cnn=cnn)
+
+    # Load checkpoint
+    checkpoint = torch.load(checkpoint_path, map_location=device)
+    model.load_state_dict(checkpoint["model_state_dict"])
+
+    # Move to device and freeze
+    model.to(device)
+    model.eval()
+
+    # Freeze all parameters - we only use this for inference
+    for param in model.parameters():
+        param.requires_grad = False
+
+    print("Task A model loaded and frozen (inference only)")
+    return model
 
 
 def compute_class_weights(dataset, num_tools=7):
@@ -106,7 +143,7 @@ def compute_tool_metrics(predictions, targets, threshold=0.5):
     }
 
 
-def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, use_time=False):
+def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, use_time=False, task_a_model=None):
     """
     Train for one epoch.
 
@@ -117,6 +154,8 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, 
         device: cuda or cpu
         tool_pos_weight: Class weights for tool BCE loss
         use_time: If True, pass time features to model (for ToolDetectorTimed)
+        task_a_model: If provided, use this model to generate time predictions (frozen)
+                      This is the key for Task B: use PREDICTED time, not ground truth
 
     Returns:
         dict with average losses and metrics
@@ -156,7 +195,26 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, 
 
         # Forward pass - with or without time features
         if use_time:
-            time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+            if task_a_model is not None:
+                # Use PREDICTED time from Task A model (the correct approach!)
+                # Task A needs elapsed_time as input to make predictions
+                elapsed_time = targets["elapsed_time"].to(device)  # [B, T, 1]
+
+                # Run Task A model (frozen) to get predicted surgery remaining time
+                with torch.no_grad():
+                    task_a_outputs = task_a_model(images, elapsed_time)
+                    # Get predicted surgery remaining time [B]
+                    predicted_surgery_remaining = task_a_outputs["t_surgery_pred"]  # [B]
+
+                # Expand to [B, T, 1] to match sequence format
+                # Use same prediction for all timesteps (current prediction)
+                B, T = images.shape[0], images.shape[1]
+                time_features = predicted_surgery_remaining.unsqueeze(1).unsqueeze(2)  # [B, 1, 1]
+                time_features = time_features.expand(B, T, 1)  # [B, T, 1]
+            else:
+                # Fallback: use elapsed_time directly (not ideal for coursework)
+                time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+
             outputs = model(images, time_features)
         else:
             outputs = model(images)
@@ -210,7 +268,7 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, 
 
 
 @torch.no_grad()
-def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time=False):
+def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time=False, task_a_model=None):
     """
     Validate for one epoch.
 
@@ -220,6 +278,7 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time
         device: cuda or cpu
         tool_pos_weight: Class weights for tool BCE loss
         use_time: If True, pass time features to model (for ToolDetectorTimed)
+        task_a_model: If provided, use this model to generate time predictions (frozen)
 
     Returns:
         dict with average losses and metrics
@@ -256,7 +315,21 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time
 
         # Forward pass - with or without time features
         if use_time:
-            time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+            if task_a_model is not None:
+                # Use PREDICTED time from Task A model
+                elapsed_time = targets["elapsed_time"].to(device)  # [B, T, 1]
+
+                # Run Task A model to get predicted surgery remaining time
+                task_a_outputs = task_a_model(images, elapsed_time)
+                predicted_surgery_remaining = task_a_outputs["t_surgery_pred"]  # [B]
+
+                # Expand to [B, T, 1]
+                B, T = images.shape[0], images.shape[1]
+                time_features = predicted_surgery_remaining.unsqueeze(1).unsqueeze(2)
+                time_features = time_features.expand(B, T, 1)
+            else:
+                time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+
             outputs = model(images, time_features)
         else:
             outputs = model(images)
@@ -302,7 +375,7 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time
 
 
 def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
-          lr=1e-4, checkpoint_path="checkpoint.pt", patience=5, use_time=False):
+          lr=1e-4, checkpoint_path="checkpoint.pt", patience=5, use_time=False, task_a_model=None):
     """
     Main training loop with early stopping.
 
@@ -317,6 +390,8 @@ def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
         checkpoint_path: Path to save best model
         patience: Early stopping patience
         use_time: If True, pass time features to model (for ToolDetectorTimed)
+        task_a_model: If provided, use this model to generate PREDICTED time features
+                      This is the key for Task B - use predictions from Task A!
 
     Returns:
         dict with training history
@@ -375,12 +450,14 @@ def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
 
         # Train
         train_metrics = train_one_epoch(
-            model, train_loader, optimizer, device, tool_pos_weight, use_time=use_time
+            model, train_loader, optimizer, device, tool_pos_weight,
+            use_time=use_time, task_a_model=task_a_model
         )
 
         # Validate
         val_metrics = validate_one_epoch(
-            model, val_loader, device, tool_pos_weight, use_time=use_time
+            model, val_loader, device, tool_pos_weight,
+            use_time=use_time, task_a_model=task_a_model
         )
 
         # Update scheduler
