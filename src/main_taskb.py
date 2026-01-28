@@ -17,7 +17,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from models.cnn import ResNet50_FeatureExtractor
-from models.tool_detector import ToolDetectorBaseline, CHOLEC80_TOOLS
+from models.tool_detector import ToolDetectorBaseline, ToolDetectorTimed, CHOLEC80_TOOLS
 from dataset import Cholec80TimeDataset
 from train_tools import train
 from preprocess import preprocess_video
@@ -121,6 +121,73 @@ def run_baseline_experiment(train_samples, val_samples, sequence_length=30):
     return history
 
 
+def run_timed_experiment(train_samples, val_samples, sequence_length=30):
+    """
+    Run the timed tool detection experiment (WITH time features).
+
+    This is the comparison experiment for Task B:
+    - CNN + LSTM architecture
+    - Multi-task: tool detection + phase classification
+    - WITH time information (elapsed_time as input)
+
+    Hypothesis: Knowing where we are in surgery helps predict which tools are present.
+    """
+    print("\n" + "=" * 80)
+    print("TASK B - TIMED EXPERIMENT: Tool Detection (WITH Time Features)")
+    print("=" * 80)
+
+    # Create datasets (same as baseline)
+    train_dataset = Cholec80TimeDataset(
+        samples=train_samples,
+        sequence_length=sequence_length,
+        transform=get_transforms(is_training=True)
+    )
+
+    val_dataset = Cholec80TimeDataset(
+        samples=val_samples,
+        sequence_length=sequence_length,
+        transform=get_transforms(is_training=False)
+    )
+
+    print(f"Train samples: {len(train_dataset)}, Val samples: {len(val_dataset)}")
+
+    # Create model - ToolDetectorTimed instead of Baseline
+    cnn = ResNet50_FeatureExtractor(pretrained=True, freeze=False)
+    model = ToolDetectorTimed(cnn=cnn, num_time_features=1)  # 1 time feature: elapsed_time
+
+    device = "cuda" if torch.cuda.is_available() else "cpu"
+    print(f"Using device: {device}")
+    model.to(device)
+
+    # Count parameters
+    total_params = sum(p.numel() for p in model.parameters())
+    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    print(f"Total parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")
+
+    # Setup checkpoint path
+    ckpt_dir = Path("checkpoints_taskb")
+    ckpt_dir.mkdir(exist_ok=True)
+    checkpoint_path = ckpt_dir / "timed_tool_detector.pt"
+
+    # Train with use_time=True
+    history = train(
+        model=model,
+        train_dataset=train_dataset,
+        val_dataset=val_dataset,
+        device=device,
+        epochs=20,
+        batch_size=8,
+        checkpoint_path=str(checkpoint_path),
+        use_time=True  # KEY DIFFERENCE: pass time features to model
+    )
+
+    # Plot results
+    plot_results(history, "timed")
+
+    return history
+
+
 def plot_results(history, exp_name):
     """
     Plot training curves for tool detection.
@@ -187,21 +254,30 @@ if __name__ == "__main__":
     print(f"After subsampling (1/{SUBSAMPLE_FACTOR}): Train: {len(train_samples)}, Val: {len(val_samples)}")
 
     # ==========================================
-    # Run Baseline Experiment
+    # Run Baseline Experiment (already completed - skip)
     # ==========================================
-    baseline_history = run_baseline_experiment(
+    # baseline_history = run_baseline_experiment(
+    #     train_samples=train_samples,
+    #     val_samples=val_samples,
+    #     sequence_length=30
+    # )
+
+    # ==========================================
+    # Run Timed Experiment
+    # ==========================================
+    timed_history = run_timed_experiment(
         train_samples=train_samples,
         val_samples=val_samples,
-        sequence_length=30  # Same as best Task A setting
+        sequence_length=30  # Same as baseline for fair comparison
     )
 
     # ==========================================
     # Summary
     # ==========================================
     print("\n" + "=" * 80)
-    print("TASK B BASELINE RESULTS")
+    print("TASK B TIMED RESULTS")
     print("=" * 80)
-    print(f"Best Validation mAP: {max(baseline_history['val_mAP']):.3f}")
-    print(f"Best Validation Phase Acc: {max(baseline_history['val_phase_acc']):.3f}")
-    print("\nBaseline training complete!")
-    print("Next step: Run timed version to compare if time features help.")
+    print(f"Best Validation mAP: {max(timed_history['val_mAP']):.3f}")
+    print(f"Best Validation Phase Acc: {max(timed_history['val_phase_acc']):.3f}")
+    print("\nTimed training complete!")
+    print("\nCompare with Baseline: mAP=0.960, Phase Acc=0.892")

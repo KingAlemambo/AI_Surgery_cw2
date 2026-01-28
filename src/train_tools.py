@@ -106,7 +106,7 @@ def compute_tool_metrics(predictions, targets, threshold=0.5):
     }
 
 
-def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
+def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None, use_time=False):
     """
     Train for one epoch.
 
@@ -116,6 +116,7 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
         optimizer: Optimizer
         device: cuda or cpu
         tool_pos_weight: Class weights for tool BCE loss
+        use_time: If True, pass time features to model (for ToolDetectorTimed)
 
     Returns:
         dict with average losses and metrics
@@ -153,8 +154,12 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
         # Zero gradients
         optimizer.zero_grad()
 
-        # Forward pass
-        outputs = model(images)
+        # Forward pass - with or without time features
+        if use_time:
+            time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+            outputs = model(images, time_features)
+        else:
+            outputs = model(images)
         phase_preds = outputs["phase_logits"]
         tool_preds = outputs["tool_logits"]
 
@@ -205,7 +210,7 @@ def train_one_epoch(model, dataloader, optimizer, device, tool_pos_weight=None):
 
 
 @torch.no_grad()
-def validate_one_epoch(model, dataloader, device, tool_pos_weight=None):
+def validate_one_epoch(model, dataloader, device, tool_pos_weight=None, use_time=False):
     """
     Validate for one epoch.
 
@@ -214,6 +219,7 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None):
         dataloader: Validation DataLoader
         device: cuda or cpu
         tool_pos_weight: Class weights for tool BCE loss
+        use_time: If True, pass time features to model (for ToolDetectorTimed)
 
     Returns:
         dict with average losses and metrics
@@ -248,8 +254,12 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None):
         phase_labels = targets["phase_id"].to(device)
         tool_labels = targets["tools"].to(device).float()
 
-        # Forward pass
-        outputs = model(images)
+        # Forward pass - with or without time features
+        if use_time:
+            time_features = targets["elapsed_time"].to(device)  # [B, T, 1]
+            outputs = model(images, time_features)
+        else:
+            outputs = model(images)
         phase_preds = outputs["phase_logits"]
         tool_preds = outputs["tool_logits"]
 
@@ -292,7 +302,7 @@ def validate_one_epoch(model, dataloader, device, tool_pos_weight=None):
 
 
 def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
-          lr=1e-4, checkpoint_path="checkpoint.pt", patience=5):
+          lr=1e-4, checkpoint_path="checkpoint.pt", patience=5, use_time=False):
     """
     Main training loop with early stopping.
 
@@ -306,6 +316,7 @@ def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
         lr: Learning rate
         checkpoint_path: Path to save best model
         patience: Early stopping patience
+        use_time: If True, pass time features to model (for ToolDetectorTimed)
 
     Returns:
         dict with training history
@@ -364,12 +375,12 @@ def train(model, train_dataset, val_dataset, device, epochs=20, batch_size=4,
 
         # Train
         train_metrics = train_one_epoch(
-            model, train_loader, optimizer, device, tool_pos_weight
+            model, train_loader, optimizer, device, tool_pos_weight, use_time=use_time
         )
 
         # Validate
         val_metrics = validate_one_epoch(
-            model, val_loader, device, tool_pos_weight
+            model, val_loader, device, tool_pos_weight, use_time=use_time
         )
 
         # Update scheduler
