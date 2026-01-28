@@ -177,10 +177,10 @@ def run_timed_experiment(train_samples, val_samples, sequence_length=30):
     print(f"Total parameters: {total_params:,}")
     print(f"Trainable parameters: {trainable_params:,}")
 
-    # Setup checkpoint path
+    # Setup checkpoint path - use descriptive name!
     ckpt_dir = Path("checkpoints_taskb")
     ckpt_dir.mkdir(exist_ok=True)
-    checkpoint_path = ckpt_dir / "timed_tool_detector.pt"
+    checkpoint_path = ckpt_dir / "timed_predicted_tool_detector.pt"  # Using PREDICTED time
 
     # Train with use_time=True and Task A model for predictions
     history = train(
@@ -195,8 +195,8 @@ def run_timed_experiment(train_samples, val_samples, sequence_length=30):
         task_a_model=task_a_model  # KEY: Use PREDICTED time from Task A!
     )
 
-    # Plot results
-    plot_results(history, "timed")
+    # Plot results - use descriptive name!
+    plot_results(history, "timed_predicted")
 
     return history
 
@@ -288,9 +288,12 @@ if __name__ == "__main__":
     # Summary
     # ==========================================
     print("\n" + "=" * 80)
-    print("TASK B TIMED RESULTS")
+    print("TASK B RESULTS - USING PREDICTED TIME FROM TASK A")
     print("=" * 80)
     print(f"Best Validation mAP: {max(timed_history['val_mAP']):.3f}")
     print(f"Best Validation Phase Acc: {max(timed_history['val_phase_acc']):.3f}")
-    print("\nTimed training complete!")
-    print("\nCompare with Baseline: mAP=0.960, Phase Acc=0.892")
+    print("\nTimed (predicted) training complete!")
+    print("\nComparison:")
+    print("  Baseline (no time):        mAP=0.960, Phase Acc=0.892")
+    print("  Timed (elapsed_time):      mAP=0.962, Phase Acc=0.905")
+    print(f"  Timed (predicted time):    mAP={max(timed_history['val_mAP']):.3f}, Phase Acc={max(timed_history['val_phase_acc']):.3f}")
