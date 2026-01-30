@@ -61,7 +61,7 @@ class TemporalTransformer(nn.Module):
     - Output: [B, T, d_model]
     """
 
-    def __init__(self, input_dim, d_model=256, nhead=8, num_layers=2, dropout=0.3):
+    def __init__(self, input_dim, d_model=256, nhead=8, num_layers=2, dropout=0.5):
         super().__init__()
 
         self.d_model = d_model

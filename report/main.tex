@@ -15,7 +15,7 @@
 
 \title{Temporal Context for Surgical Workflow Analysis: Duration Prediction and Tool Detection in Cholecystectomy}
 
-\author{George Mathios}
+\author{Alexandros Mathios}
 \institute{University College London, Department of Medical Physics and Biomedical Engineering}
 
 \maketitle
@@ -24,7 +24,7 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-Accurate prediction of surgical duration and tool usage is essential for operating room scheduling, resource allocation, and intraoperative decision support. We present a deep learning framework for surgical workflow analysis using the Cholec80 dataset of laparoscopic cholecystectomy videos. Our approach combines a pretrained ResNet-50 feature extractor with a Long Short-Term Memory (LSTM) network for temporal modeling. For duration prediction (Task A), we predict remaining phase and surgery duration, as well as the start and end times of all surgical phases, achieving a mean absolute error of 7.27 minutes for current phase prediction and 13.80 minutes for total surgery remaining time. For tool detection (Task B), we investigate whether estimated temporal information can improve surgical tool detection through multi-task learning. We compare a baseline model against a time-augmented version that incorporates predicted surgical progress. Our experiments demonstrate that incorporating elapsed time as an additional input feature yields a modest improvement in tool detection (mAP: 0.960 $\rightarrow$ 0.962) and a more substantial improvement in phase classification accuracy (89.2\% $\rightarrow$ 90.5\%). We provide ablation studies on sequence length, CNN fine-tuning strategies, and the effect of temporal features on tool detection performance.
+Accurate prediction of surgical duration and tool usage is essential for operating room scheduling and intraoperative decision support. We present a CNN-LSTM framework for surgical workflow analysis using the Cholec80 dataset. For duration prediction (Task A), we predict remaining phase and surgery time, achieving 7.27 and 13.80 minutes MAE respectively. For tool detection (Task B), we investigate whether \textit{predicted} timing from Task A improves performance. Comparing a baseline against a time-augmented model using frozen Task A predictions, we find that predicted temporal context (0.954 mAP) performs worse than the baseline (0.960 mAP), while ground-truth elapsed time shows improvement (0.962 mAP)---indicating that Task A predictions require higher accuracy before benefiting downstream tasks.
 
 \keywords{Surgical workflow analysis \and Duration prediction \and Tool detection \and Deep learning \and LSTM}
 \end{abstract}
@@ -44,12 +44,6 @@ Laparoscopic cholecystectomy is one of the most frequently performed surgical pr
     \item \textbf{Intraoperative Decision Support}: Real-time awareness of surgical progress can alert teams to procedures running longer than expected, potentially indicating complications.
 \end{itemize}
 
-\subsection{Related Work}
-
-Surgical workflow analysis has been extensively studied using the Cholec80 dataset~\cite{twinanda2016endonet}. EndoNet demonstrated that multi-task learning of phase recognition and tool detection yields mutual benefits, as tools and phases are inherently correlated. Recent work has explored temporal models including LSTMs, Temporal Convolutional Networks (TeCNO)~\cite{czempiel2020tecno}, and Transformers for capturing the sequential nature of surgery.
-
-However, most prior work focuses on phase recognition rather than explicit duration prediction. Predicting \textit{when} phases will start and end, and \textit{how long} the surgery will take, remains less explored despite its practical importance for OR management.
-
 \subsection{Research Questions}
 
 In this work, we address the following research questions:
@@ -60,99 +54,46 @@ In this work, we address the following research questions:
 
 \textbf{RQ3}: Does incorporating predicted temporal information (from Task A) improve downstream tool detection (Task B)? We hypothesize that knowing the surgical progress helps predict which tools are likely to be present, as certain tools are phase-specific (e.g., Clipper in ClippingCutting phase, SpecimenBag in GallbladderPackaging).
 
-\subsection{Contributions}
-
-Our main contributions are:
-\begin{enumerate}
-    \item A CNN-LSTM architecture for multi-output surgical duration prediction, including phase-specific start and end times for all seven surgical phases.
-    \item Systematic ablation studies on sequence length and CNN fine-tuning strategies for duration prediction.
-    \item Investigation of whether predicted temporal features improve tool detection in a multi-task learning framework following the EndoNet approach.
-\end{enumerate}
-
 % ============================================================================
 % METHODS
 % ============================================================================
 \section{Methods}
 
-\subsection{Problem Formulation}
-
-Given a sequence of $T$ video frames from an ongoing surgery, we aim to predict:
-
-\textbf{Task A (Duration Prediction):}
-\begin{itemize}
-    \item Time remaining in current phase (minutes)
-    \item Time remaining until surgery end (minutes)
-    \item Start time of each of the 7 phases relative to current time (minutes)
-    \item End time of each of the 7 phases relative to current time (minutes)
-\end{itemize}
-
-\textbf{Task B (Tool Detection):}
-\begin{itemize}
-    \item Presence/absence of 7 surgical tools (multi-label binary classification)
-    \item Current surgical phase (multi-class classification, as auxiliary task)
-\end{itemize}
-
 \subsection{Architecture}
 
-Our architecture follows a two-stage design: spatial feature extraction followed by temporal modeling (Figure~\ref{fig:architecture}).
+We design a unified video-based pipeline for surgical workflow analysis consisting of three stages: (1) frame-level visual feature extraction, (2) temporal modelling across frame sequences, and (3) task-specific prediction heads. Video frames are sampled at 1 fps and grouped into fixed-length sequences of $T$ frames.
 
-\textbf{Spatial Feature Extraction (CNN):}
-We use ResNet-50~\cite{he2016deep} pretrained on ImageNet as our backbone. The final classification layer is removed, yielding a 2048-dimensional feature vector per frame. We investigated two fine-tuning strategies:
+\textbf{Visual Features:} We use ResNet-50~\cite{he2016deep} pretrained on ImageNet, producing a \textbf{2048-dimensional feature vector per frame}. To balance adaptation and regularisation, we apply \textbf{partial fine-tuning}: early layers are frozen while the final residual block (Layer4) is trainable, allowing adaptation to laparoscopic imagery while preserving robust low-level features~\cite{yosinski2014transferable}.
+
+\textbf{Temporal Modelling:} Frame features are processed by a \textbf{two-layer LSTM} with hidden dimension \textbf{256}. The final hidden state serves as the shared temporal representation for all downstream predictions, capturing both short-term patterns (e.g., tool motion) and longer-term trends (e.g., phase progression).
+
+\subsection{Task A: Duration Prediction}
+
+For Task A, the model receives a sequence of frames along with \textbf{normalised elapsed time} as input. The LSTM output is fed into \textbf{multiple regression heads} predicting: the remaining time of the current surgical phase, the total surgery time, and start/end times of all 7 surgical phases (relative to current time).
+
+Predicting complete phase timelines provides more informative scheduling estimates than single duration values. All outputs use \textbf{L1 loss}, which is robust to surgical duration variability and yields errors interpretable in minutes.
+
+\subsection{Task B: Tool Detection with Temporal Information}
+
+Task B evaluates whether temporal information estimated in Task A can improve a downstream task. We select \textbf{surgical tool detection}, as tool usage is strongly correlated with surgical phase~\cite{twinanda2016endonet}.
+
+The same CNN--LSTM backbone is reused with two task-specific heads:
 \begin{itemize}
-    \item \textit{Frozen}: All CNN weights fixed; only the temporal model learns.
-    \item \textit{Partial unfreezing}: Layer4 (final residual block) is trainable while earlier layers remain frozen.
+    \item A \textbf{multi-label tool detection head} with 7 sigmoid outputs
+    \item A \textbf{phase classification head} with 7 softmax outputs (auxiliary task)
 \end{itemize}
 
-The rationale for partial unfreezing is that early CNN layers learn generic visual features (edges, textures) that transfer well across domains, while deeper layers learn task-specific features that benefit from adaptation to surgical imagery.
+This multi-task design follows EndoNet~\cite{twinanda2016endonet}, leveraging tool-phase correlations. Binary cross-entropy with \textbf{class weighting} addresses tool imbalance (Grasper: 60.6\% vs Scissors: 1.9\%).
 
-\textbf{Temporal Modeling (LSTM):}
-Frame features are processed by a 2-layer LSTM with hidden dimension 256. The LSTM captures temporal dependencies and surgical progression patterns. We use dropout ($p=0.3$) between LSTM layers for regularization. The final hidden state is passed to task-specific prediction heads.
+\textbf{Time-Augmented Model:} The predicted remaining surgery time from a \textbf{frozen Task A model} is concatenated to CNN features before the LSTM. Critically, we use predicted time rather than ground-truth, testing whether Task A estimates provide useful context in a realistic deployment scenario.
 
-\textbf{Task A Prediction Heads:}
-\begin{itemize}
-    \item Phase remaining time: Linear layer outputting 1 value
-    \item Surgery remaining time: Linear layer outputting 1 value
-    \item Phase start times: Linear layer outputting 7 values
-    \item Phase end times: Linear layer outputting 7 values
-\end{itemize}
+\subsection{Training Strategy}
 
-\textbf{Task B Prediction Heads:}
-\begin{itemize}
-    \item Tool detection: Linear layer with 7 outputs (sigmoid activation)
-    \item Phase classification: Linear layer with 7 outputs (softmax activation)
-\end{itemize}
+\textbf{Optimisation:} We use AdamW~\cite{loshchilov2019adamw} with ReduceLROnPlateau scheduling, reducing the learning rate when validation performance plateaus.
 
-\subsection{Time-Augmented Tool Detection}
+\textbf{Regularisation:} We combine dropout between LSTM layers~\cite{gal2016dropout}, weight decay, early stopping, and partial CNN freezing to prevent overfitting.
 
-For the ``timed'' version of Task B, we concatenate temporal features with CNN features before the LSTM:
-\begin{equation}
-    \mathbf{f}_t^{timed} = [\mathbf{f}_t^{CNN}; t_{elapsed}; p_{progress}]
-\end{equation}
-where $t_{elapsed}$ is the normalized elapsed time since surgery start, and $p_{progress}$ is the fraction of surgery completed. This allows the model to leverage temporal context when predicting tools.
-
-\subsection{Loss Functions}
-
-\textbf{Task A:} We use L1 loss (Mean Absolute Error) for all regression targets:
-\begin{equation}
-    \mathcal{L}_A = \text{L1}(\hat{t}_{phase}) + \text{L1}(\hat{t}_{surgery}) + \text{L1}(\hat{t}_{starts}) + \text{L1}(\hat{t}_{ends})
-\end{equation}
-L1 loss is preferred over L2 as it is less sensitive to outliers and produces predictions in clinically interpretable units (minutes).
-
-\textbf{Task B:} Combined multi-task loss:
-\begin{equation}
-    \mathcal{L}_B = \text{BCE}(\hat{y}_{tools}, y_{tools}) + \text{CE}(\hat{y}_{phase}, y_{phase})
-\end{equation}
-For tool detection, we use Binary Cross-Entropy with class-weighted \texttt{pos\_weight} to handle tool imbalance. Rare tools like SpecimenBag (6.6\% frequency) receive higher weight than common tools like Grasper (60.6\%).
-
-\subsection{Training Details}
-
-\begin{itemize}
-    \item \textbf{Optimizer}: AdamW with weight decay $10^{-4}$
-    \item \textbf{Learning rate}: $10^{-4}$ with ReduceLROnPlateau scheduler
-    \item \textbf{Batch size}: 8 sequences
-    \item \textbf{Early stopping}: Patience of 5 epochs based on validation metric
-    \item \textbf{Data augmentation}: Random crop ($256 \rightarrow 224$), horizontal flip ($p=0.5$), color jitter
-\end{itemize}
+\textbf{Data Augmentation:} Random cropping, horizontal flipping, and colour jitter simulate OR visual variations. Vertical flipping is not used as surgical orientation is clinically meaningful.
 
 % ============================================================================
 % EXPERIMENTS
@@ -161,44 +102,39 @@ For tool detection, we use Binary Cross-Entropy with class-weighted \texttt{pos\
 
 \subsection{Dataset}
 
-We use the \textbf{Cholec80} dataset~\cite{twinanda2016endonet}, consisting of 80 videos of laparoscopic cholecystectomy performed by 13 surgeons. The dataset includes frame-level annotations for 7 surgical phases and 7 surgical tools. Video durations range from approximately 20 to 80 minutes.
+We use the \textbf{Cholec80} dataset~\cite{twinanda2016endonet}, consisting of 80 videos of laparoscopic cholecystectomy performed by 13 surgeons. Video durations range from approximately 20 to 80 minutes. The dataset includes frame-level annotations for 7 surgical phases (Preparation, Calot Triangle Dissection, Clipping and Cutting, Gallbladder Dissection, Gallbladder Packaging, Cleaning and Coagulation, Gallbladder Retraction) and 7 surgical tools (Grasper, Bipolar, Hook, Scissors, Clipper, Irrigator, SpecimenBag).
 
-\textbf{Surgical Phases}: Preparation, Calot Triangle Dissection, Clipping and Cutting, Gallbladder Dissection, Gallbladder Packaging, Cleaning and Coagulation, Gallbladder Retraction.
+\subsection{Experimental Setup}
 
-\textbf{Surgical Tools}: Grasper, Bipolar, Hook, Scissors, Clipper, Irrigator, SpecimenBag.
-
-\subsection{Data Split and Preprocessing}
-
-We split the data by video (not by frame) to prevent data leakage:
-\begin{itemize}
-    \item Training: 48 videos (60\%)
-    \item Validation: 16 videos (20\%)
-    \item Test: 16 videos (20\%)
-\end{itemize}
-
-Frames are extracted at 1 fps from the original 25 fps videos and normalized using ImageNet statistics.
+We split the data by video (not by frame) to prevent data leakage from temporal correlations: 48 videos for training (60\%), 16 for validation (20\%), and 16 for testing (20\%). Frames are extracted at 1 fps from the original 25 fps videos and normalised using ImageNet statistics. Training uses learning rate $10^{-4}$, weight decay $10^{-4}$, batch size 8, and early stopping with patience of 5 epochs.
 
 \subsection{Evaluation Metrics}
 
-\textbf{Task A - Duration Prediction:}
-\begin{itemize}
-    \item Mean Absolute Error (MAE) in minutes --- clinically interpretable
-\end{itemize}
+For \textbf{Task A} (duration prediction), we use Mean Absolute Error (MAE) measured in minutes. MAE provides directly interpretable errors in clinical time units---a prediction error of ``X minutes'' is immediately meaningful for operating room scheduling. Unlike RMSE, MAE is robust to outliers from unusually long or complicated surgeries.
 
-\textbf{Task B - Tool Detection:}
-\begin{itemize}
-    \item Mean Average Precision (mAP) --- standard metric for multi-label classification
-    \item Per-tool Average Precision (AP) --- identifies which tools are hardest to detect
-    \item Phase Accuracy --- for the auxiliary phase classification task
-\end{itemize}
+For \textbf{Task B} (tool detection), we use Mean Average Precision (mAP), the standard metric for multi-label classification that summarises detection quality across all tools while handling class imbalance. We also report per-tool Average Precision (AP) to identify which specific tools are most challenging to detect---this is clinically relevant as rare tools like SpecimenBag and Scissors require particular attention. For the auxiliary phase classification task, we report classification accuracy.
 
-\subsection{Ablation Studies}
+\subsection{Task A: Duration Prediction Experiments}
 
-\textbf{Sequence Length (Task A):} We compare $T \in \{15, 30, 60\}$ frames (at 1 fps, corresponding to 15, 30, 60 seconds of temporal context).
+We conduct a series of experiments to optimise duration prediction, systematically investigating architectural choices, temporal context, and regularisation.
 
-\textbf{CNN Fine-tuning (Task A):} We compare fully frozen CNN versus unfreezing Layer4.
+\textbf{Frozen vs Unfrozen CNN:} We first compare two transfer learning strategies: (1) fully frozen CNN where all ResNet-50 weights are fixed, and (2) partial fine-tuning where the final residual block (Layer4) is trainable. This investigates whether the domain shift from ImageNet to laparoscopic imagery requires CNN adaptation, or whether frozen features suffice.
 
-\textbf{Time Features (Task B):} We compare baseline (no time features) versus timed (with elapsed time and progress).
+\textbf{Sequence Length Ablation:} We investigate how much temporal context is needed for accurate duration prediction by comparing sequence lengths $T \in \{15, 30, 60\}$ frames (corresponding to 15, 30, and 60 seconds at 1 fps). Shorter sequences may lack sufficient context about surgical progression, while longer sequences risk introducing noise from outdated visual information.
+
+\textbf{Regularisation:} During initial experiments, we observed overfitting where training loss continued decreasing while validation loss plateaued or increased. To address this, we systematically applied multiple regularisation techniques: dropout between LSTM layers ($p=0.3$) and before prediction heads ($p=0.5$), weight decay ($10^{-4}$), early stopping based on validation performance, and partial CNN freezing to constrain the hypothesis space.
+
+\textbf{Temporal Architecture Comparison:} To evaluate whether alternative temporal models could improve performance, we compare the LSTM-based architecture against a Transformer encoder with equivalent capacity (same hidden dimension, comparable parameter count). This tests whether the self-attention mechanism offers advantages over recurrent processing for surgical video sequences.
+
+\subsection{Task B: Tool Detection Experiments}
+
+Task B investigates whether predicted temporal information from Task A can improve surgical tool detection---the core question of whether duration estimates are useful for downstream tasks.
+
+\textbf{Baseline Multi-task Model:} We first establish a baseline using the CNN-LSTM backbone with multi-task learning (tool detection + phase classification) but no temporal features. This follows the EndoNet approach~\cite{twinanda2016endonet}, exploiting the correlation between tools and surgical phases.
+
+\textbf{Time-Augmented Model:} We then augment the model with predicted surgery remaining time from a frozen Task A model. Critically, we use \textit{predicted} time rather than ground-truth elapsed time---this reflects a realistic deployment scenario where true timing is unavailable, and directly tests whether Task A predictions provide useful context. The frozen Task A model generates predictions for each training batch, which are concatenated with CNN features before the LSTM.
+
+\textbf{Per-Tool Analysis:} We analyse detection performance for each tool individually to understand which tools benefit from temporal information. We hypothesise that phase-specific tools (Clipper during ClippingCutting, SpecimenBag during GallbladderPackaging) will show greater improvement, as knowing surgical progress helps predict their presence.
 
 % ============================================================================
 % RESULTS
@@ -226,91 +162,63 @@ $T = 60$ & 7.52 & 14.48 \\
 \end{tabular}
 \end{table}
 
-The optimal sequence length is $T=30$ frames (30 seconds of context). Shorter sequences lack sufficient temporal context, while longer sequences may introduce noise from frames too distant from the current surgical state.
+The optimal sequence length is $T=30$ frames (30 seconds of context). Shorter sequences lack sufficient temporal context for understanding surgical progression, while longer sequences introduce noise from outdated visual information. This finding aligns with the temporal dynamics of surgical phases, which typically evolve over tens of seconds rather than minutes.
 
-\textbf{Clinical Interpretation:} A surgery duration prediction error of approximately 14 minutes is clinically meaningful for OR scheduling. For a typical 45-minute cholecystectomy, this represents roughly 30\% uncertainty.
+\textbf{Clinical Interpretation:} A surgery duration prediction error of approximately 14 minutes is clinically relevant for OR scheduling. For a typical 45-minute cholecystectomy, this represents roughly 30\% uncertainty---sufficient for approximate scheduling but highlighting the inherent difficulty of duration prediction from visual information alone.
 
-\subsubsection{Phase Start and End Time Prediction}
+\subsubsection{LSTM vs Transformer}
 
-Table~\ref{tab:phase_times} shows the prediction accuracy for individual phase start and end times.
-
-\begin{table}[h]
-\centering
-\caption{Phase start and end time prediction (MAE in minutes, $T=30$).}
-\label{tab:phase_times}
-\begin{tabular}{lcc}
-\toprule
-Phase & Start Time MAE & End Time MAE \\
-\midrule
-Preparation & \result{X.XX} & \result{X.XX} \\
-Calot Triangle Dissection & \result{X.XX} & \result{X.XX} \\
-Clipping and Cutting & \result{X.XX} & \result{X.XX} \\
-Gallbladder Dissection & \result{X.XX} & \result{X.XX} \\
-Gallbladder Packaging & \result{X.XX} & \result{X.XX} \\
-Cleaning and Coagulation & \result{X.XX} & \result{X.XX} \\
-Gallbladder Retraction & \result{X.XX} & \result{X.XX} \\
-\midrule
-\textbf{Average} & \result{X.XX} & \result{X.XX} \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-\todo{Fill in results and add interpretation}
+We compared the LSTM temporal model against a Transformer encoder with equivalent capacity (d\_model=256, 8 attention heads, 2 layers). At $T=30$, LSTM achieves 7.27 min phase MAE versus Transformer's 7.59 min. The Transformer showed severe overfitting (train MAE: 1.79 min, val MAE: 7.85 min), triggering early stopping after 4 epochs. This suggests that for short sequences and limited data, LSTM's sequential inductive bias outperforms Transformer's learned attention patterns.
 
 \subsection{Task B: Tool Detection}
 
-Table~\ref{tab:taskb} compares the baseline model (no time features) against the time-augmented model.
+Table~\ref{tab:taskb} compares tool detection performance across three conditions: baseline (no time features), time-augmented with ground-truth elapsed time, and time-augmented with predicted time from Task A.
 
 \begin{table}[h]
 \centering
-\caption{Tool detection performance: Baseline vs Time-Augmented.}
+\caption{Tool detection performance comparison.}
 \label{tab:taskb}
 \begin{tabular}{lcc}
 \toprule
 Model & mAP & Phase Accuracy \\
 \midrule
-Baseline (no time) & 0.960 & 89.2\% \\
-Timed (with elapsed time) & \textbf{0.962} & \textbf{90.5\%} \\
-\midrule
-Improvement & +0.002 & +1.3\% \\
+Baseline (no time) & \textbf{0.960} & 89.2\% \\
++ Elapsed time (ground truth) & 0.962 & \textbf{90.5\%} \\
++ Predicted time (from Task A) & 0.954 & 88.6\% \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-Both models achieve excellent tool detection performance, with the baseline already reaching 0.960 mAP. The time-augmented model provides a modest improvement of +0.002 mAP for tool detection, but a more notable +1.3\% improvement in phase classification accuracy. This suggests that elapsed time is more directly informative for phase recognition than for tool detection.
+\textbf{Key Finding:} The time-augmented model using \textit{predicted} time from Task A performs \textit{worse} than the baseline (0.954 vs 0.960 mAP). This contrasts with the ground-truth elapsed time condition, which shows modest improvement (0.962 mAP). This result indicates that while accurate temporal information can benefit tool detection, the noise in Task A predictions ($\sim$14 minute MAE) introduces more confusion than useful signal.
 
 \subsubsection{Per-Tool Analysis}
 
-Table~\ref{tab:per_tool} shows per-tool Average Precision for both models, revealing which tools benefit from temporal information.
+Table~\ref{tab:per_tool} shows per-tool Average Precision for the predicted time model.
 
 \begin{table}[h]
 \centering
-\caption{Per-tool Average Precision comparison. Tools sorted by improvement from time features.}
+\caption{Per-tool Average Precision (predicted time model).}
 \label{tab:per_tool}
-\begin{tabular}{lcccc}
+\begin{tabular}{lcc}
 \toprule
-Tool & Frequency & Baseline AP & Timed AP & $\Delta$ \\
+Tool & Frequency & AP \\
 \midrule
-Grasper & 60.6\% & 0.913 & \textbf{0.931} & +0.018 \\
-Clipper & 3.5\% & 0.964 & \textbf{0.972} & +0.008 \\
-Irrigator & 6.5\% & 0.961 & \textbf{0.966} & +0.005 \\
-SpecimenBag & 6.6\% & 0.978 & \textbf{0.981} & +0.003 \\
-Hook & 55.5\% & 0.989 & 0.990 & +0.001 \\
-Bipolar & 5.2\% & \textbf{0.959} & 0.956 & -0.003 \\
-Scissors & 1.9\% & \textbf{0.956} & 0.938 & -0.018 \\
+Hook & 56.0\% & 0.994 \\
+SpecimenBag & 6.8\% & 0.976 \\
+Irrigator & 6.7\% & 0.968 \\
+Bipolar & 5.3\% & 0.962 \\
+Clipper & 3.6\% & 0.958 \\
+Grasper & 60.5\% & 0.918 \\
+Scissors & 1.8\% & 0.906 \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Analysis of Per-Tool Results:}
+\textbf{Analysis:} Hook achieves the highest AP (0.994), likely due to its distinctive visual appearance during dissection. Grasper, despite being the most frequent tool (60.5\%), has lower AP (0.918) because it appears throughout surgery, making its \textit{absence} difficult to predict. Scissors shows the lowest AP (0.906), reflecting the challenge of detecting rare tools (1.8\% frequency) even with class weighting.
 
-\textit{Grasper} shows the largest improvement (+0.018 AP) from time features. Despite being the most frequent tool (60.6\%), it had the lowest baseline AP (0.913) because it appears throughout surgery, making it difficult to detect its \textit{absence}. Time context helps because Grasper usage patterns change across surgical phases.
+\subsubsection{Interpretation}
 
-\textit{Clipper} and \textit{SpecimenBag} also benefit from time features. These tools are phase-specific: Clipper predominantly appears during ClippingCutting, and SpecimenBag only during GallbladderPackaging near the end of surgery. Knowing elapsed time helps predict their presence.
-
-\textit{Scissors} shows decreased performance (-0.018 AP) with time features. This rare tool (1.9\% frequency) may be subject to noise, or the model may overfit to temporal patterns that don't generalize.
-
-\textit{Hook} achieves the highest AP (0.989-0.990) in both models, likely due to its distinctive visual appearance during dissection phases.
+The comparison between ground-truth and predicted time reveals an important insight: temporal context \textit{can} improve tool detection when accurate, but the current Task A predictions are insufficiently precise. With $\sim$14 minute MAE on surgery remaining time (approximately 30\% error for a typical procedure), the predicted time signal contains substantial noise. The model may learn to partially ignore this unreliable input, or worse, be misled by incorrect temporal cues. This suggests that improving duration prediction accuracy is a prerequisite for effectively leveraging temporal context in downstream tasks.
 
 % ============================================================================
 % DISCUSSION
@@ -319,33 +227,26 @@ Scissors & 1.9\% & \textbf{0.956} & 0.938 & -0.018 \\
 
 Our experiments address three research questions with the following findings:
 
-\textbf{RQ1 (Sequence Length):} The optimal temporal context is 30 seconds ($T=30$ frames). Shorter sequences (15s) lack sufficient context for understanding surgical progression, while longer sequences (60s) introduce noise from outdated visual information. This suggests a balance between capturing temporal patterns and maintaining relevance to the current surgical state.
+\textbf{RQ1 (Sequence Length):} The optimal temporal context is 30 seconds ($T=30$ frames). Shorter sequences lack sufficient context for understanding surgical progression, while longer sequences introduce noise from outdated visual information.
 
-\textbf{RQ2 (Phase Timing Prediction):} Multi-output prediction of phase start/end times enables comprehensive surgical timeline estimation, though accuracy varies by phase. Earlier phases are predicted more accurately than later phases due to cumulative uncertainty.
+\textbf{RQ2 (Phase Timing Prediction):} Multi-output prediction of phase start/end times enables comprehensive surgical timeline estimation, though with $\sim$14 minute MAE for surgery remaining time ($\sim$30\% error for a typical procedure), the utility for fine-grained scheduling is limited.
 
-\textbf{RQ3 (Time Features for Tool Detection):} Our hypothesis that temporal information improves tool detection is \textit{partially supported}. The improvement in mAP is modest (+0.002), indicating that visual features dominate tool detection. However, specific tools benefit more: Grasper (+0.018 AP) and phase-specific tools like Clipper (+0.008 AP) show meaningful improvements. The larger gain in phase accuracy (+1.3\%) confirms that elapsed time is more directly relevant to surgical phase than to tool presence.
+\textbf{RQ3 (Predicted Time for Tool Detection):} Our hypothesis that predicted temporal information improves tool detection is \textit{not supported}. The predicted time model (0.954 mAP) performs \textit{worse} than the baseline (0.960 mAP). However, ground-truth elapsed time \textit{does} improve performance (0.962 mAP), indicating that accurate temporal context can benefit tool detection. The $\sim$14 minute MAE from Task A introduces more noise than signal---the model is misled by incorrect temporal cues rather than helped by approximate timing.
 
-\textbf{Limitations:}
-\begin{itemize}
-    \item \textbf{Single dataset}: Results on Cholec80 may not generalize to other procedures or institutions.
-    \item \textbf{Class imbalance}: Despite class weighting, rare tools (Scissors: 1.9\%) show higher variance.
-    \item \textbf{Temporal resolution}: 1 fps sampling may miss brief tool appearances.
-    \item \textbf{Time feature simplicity}: We used only elapsed time; richer temporal features (e.g., predicted remaining time from Task A) may provide greater benefit.
-\end{itemize}
+\textbf{Implications:} This negative result reveals a key challenge: downstream tasks require upstream predictions to exceed a quality threshold before providing benefit. Ground-truth timing helps, but predicted timing with 30\% error hurts. Improving Task A accuracy is therefore a prerequisite for leveraging temporal context in Task B.
 
-\textbf{Clinical Implications:}
-A surgery duration MAE of 13.8 minutes enables meaningful OR scheduling improvements. Tool detection at 0.96 mAP could support automated surgical documentation. The finding that visual features dominate over temporal cues suggests robust performance even without accurate timing information.
+\textbf{Limitations:} Results on Cholec80 may not generalise to other procedures. Class imbalance affects rare tools despite weighting. 1 fps sampling may miss brief tool appearances.
 
 % ============================================================================
 % CONCLUSION
 % ============================================================================
 \section{Conclusion}
 
-We presented a CNN-LSTM framework for surgical workflow analysis addressing duration prediction and tool detection. For duration prediction, we achieved 7.27 minutes MAE for phase remaining time and 13.80 minutes for surgery remaining time, with optimal performance at 30-second temporal context. For tool detection, our multi-task baseline achieved 0.960 mAP, with time-augmented features providing modest improvement to 0.962 mAP. The largest per-tool improvement was observed for Grasper (+1.8\% AP), the tool with most variable temporal usage patterns.
+We presented a CNN-LSTM framework for surgical workflow analysis addressing duration prediction and tool detection. For duration prediction (Task A), we achieved 7.27 minutes MAE for phase remaining time and 13.80 minutes for surgery remaining time, with optimal performance at 30-second temporal context. For tool detection (Task B), our baseline achieved 0.960 mAP. Augmenting with \textit{predicted} time from Task A reduced performance to 0.954 mAP, while ground-truth elapsed time improved it to 0.962 mAP.
 
-Our key finding is that while temporal context benefits tool detection, the effect is smaller than hypothesized---visual features remain the dominant signal for tool recognition. This suggests that surgical tool detection systems can perform well even without precise temporal information, which is encouraging for real-world deployment.
+Our key finding is a meaningful negative result: predicted temporal context hurts rather than helps tool detection when prediction accuracy is insufficient ($\sim$30\% error). This highlights that task chaining in surgical AI pipelines requires upstream predictions to meet minimum quality thresholds. Visual features remain the dominant signal for tool recognition, which is encouraging for real-world deployment where timing information may be unavailable or unreliable.
 
-Future directions include exploring Transformer architectures for temporal modeling, incorporating richer time features such as predicted remaining durations, and validating on additional surgical procedure types.
+Future work should focus on improving duration prediction accuracy before attempting to leverage it for downstream tasks.
 
 % ============================================================================
 % REFERENCES
@@ -361,6 +262,15 @@ Czempiel, T., Paber, M., Shehata, S., Stypulkowski, M., Ostler, D., Navab, N., T
 
 \bibitem{he2016deep}
 He, K., Zhang, X., Ren, S., Sun, J.: Deep residual learning for image recognition. In: CVPR. pp. 770--778 (2016)
+
+\bibitem{yosinski2014transferable}
+Yosinski, J., Clune, J., Bengio, Y., Lipson, H.: How transferable are features in deep neural networks? In: NeurIPS. pp. 3320--3328 (2014)
+
+\bibitem{loshchilov2019adamw}
+Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: ICLR (2019)
+
+\bibitem{gal2016dropout}
+Gal, Y., Ghahramani, Z.: A theoretically grounded application of dropout in recurrent neural networks. In: NeurIPS. pp. 1019--1027 (2016)
 
 \end{thebibliography}
 

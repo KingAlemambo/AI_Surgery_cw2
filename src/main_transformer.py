@@ -63,7 +63,7 @@ def run_transformer_experiment(train_samples, val_samples, sequence_length=30):
     """
     print("\n" + "=" * 70)
     print("TASK A - TRANSFORMER EXPERIMENT")
-    print(f"Sequence Length: {sequence_length}, d_model: 256, nhead: 8, layers: 2")
+    print(f"Sequence Length: {sequence_length}, d_model: 256, nhead: 8, layers: 2, dropout: 0.5")
     print("=" * 70)
 
     # Create datasets
@@ -184,11 +184,11 @@ if __name__ == "__main__":
     train_samples, val_samples, test_samples = split_by_video(all_samples)
     print(f"Train: {len(train_samples)}, Val: {len(val_samples)}, Test: {len(test_samples)}")
 
-    # Run Transformer experiment with seq=30
+    # Run Transformer experiment with seq=60 (testing longer sequences)
     results = run_transformer_experiment(
         train_samples=train_samples,
         val_samples=val_samples,
-        sequence_length=30
+        sequence_length=60
     )
 
     # Summary comparison with LSTM results

@@ -42,7 +42,7 @@ class CNNTransformerPhaseModel(nn.Module):
             d_model=d_model,
             nhead=nhead,
             num_layers=num_layers,
-            dropout=0.3  # Dropout inside transformer
+            dropout=dropout  # Use same dropout as prediction heads
         )
 
         # Dropout for regularization before prediction heads
