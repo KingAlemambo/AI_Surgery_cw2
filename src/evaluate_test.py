@@ -40,9 +40,9 @@ VIDEOS_DIR = DATA_DIR / "videos"
 
 # Model checkpoint paths - ADJUST THESE TO YOUR ACTUAL PATHS
 TASK_A_CHECKPOINT = "checkpoints5/Exp_Seq30_seq30_best.pt"  # Best LSTM model
-TASK_B_BASELINE_CHECKPOINT = "checkpoints_taskb/baseline_best.pt"
-TASK_B_TIMED_CHECKPOINT = "checkpoints_taskb/timed_best.pt"  # elapsed time
-TASK_B_PREDICTED_CHECKPOINT = "checkpoints_taskb/timed_predicted_best.pt"  # predicted time
+TASK_B_BASELINE_CHECKPOINT = "checkpoints_taskb/baseline_tool_detector.pt"
+TASK_B_TIMED_CHECKPOINT = "checkpoints_taskb/timed_tool_detector.pt"  # elapsed time
+TASK_B_PREDICTED_CHECKPOINT = "checkpoints_taskb/timed_predicted_tool_detector.pt"  # predicted time
 
 TOOL_NAMES = ["Grasper", "Bipolar", "Hook", "Scissors", "Clipper", "Irrigator", "SpecimenBag"]
 
