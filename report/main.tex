@@ -65,7 +65,7 @@ We design a unified video-based pipeline for surgical workflow analysis consisti
 
 \textbf{Visual Features:} We use ResNet-50~\cite{he2016deep} pretrained on ImageNet, producing a \textbf{2048-dimensional feature vector per frame}. To balance adaptation and regularisation, we apply \textbf{partial fine-tuning}: early layers are frozen while the final residual block (Layer4) is trainable, allowing adaptation to laparoscopic imagery while preserving robust low-level features~\cite{yosinski2014transferable}.
 
-\textbf{Temporal Modelling:} Frame features are processed by a \textbf{two-layer LSTM} with hidden dimension \textbf{256}. The final hidden state serves as the shared temporal representation for all downstream predictions, capturing both short-term patterns (e.g., tool motion) and longer-term trends (e.g., phase progression).
+\textbf{Temporal Modelling:} Frame features are processed by a \textbf{two-layer LSTM}~\cite{hochreiter1997lstm} with hidden dimension \textbf{256}. The final hidden state serves as the shared temporal representation for all downstream predictions, capturing both short-term patterns (e.g., tool motion) and longer-term trends (e.g., phase progression).
 
 \subsection{Task A: Duration Prediction}
 
@@ -78,7 +78,7 @@ The LSTM output feeds into \textbf{multiple prediction heads}:
     \item \textbf{Progress head}: Sigmoid output predicting surgery completion (0$\to$1), serving as an auxiliary task that encourages temporally-aware representations
 \end{itemize}
 
-This multi-output design provides richer scheduling information than single duration values. All regression outputs use \textbf{L1 loss}, which is robust to duration variability and yields errors directly interpretable in minutes.
+This multi-output design provides richer scheduling information than single duration values, inspired by multi-task learning approaches in surgical workflow analysis~\cite{twinanda2016endonet}. All regression outputs use \textbf{L1 loss}, which is robust to duration variability and yields errors directly interpretable in minutes.
 
 \subsection{Task B: Tool Detection with Temporal Information}
 
@@ -92,7 +92,7 @@ The same CNN--LSTM backbone is reused with two task-specific heads:
 
 This multi-task design follows EndoNet~\cite{twinanda2016endonet}, leveraging tool-phase correlations. Binary cross-entropy with \textbf{class weighting} addresses tool imbalance (Grasper: 60.6\% vs Scissors: 1.9\%).
 
-\textbf{Time-Augmented Model:} The predicted remaining surgery time from a \textbf{frozen Task A model} is concatenated to CNN features before the LSTM. Critically, we use predicted time rather than ground-truth, testing whether Task A estimates provide useful context in a realistic deployment scenario.
+\textbf{Time-Augmented Model:} We use our best-performing Task A model (LSTM with $T=30$, partial fine-tuning) to generate predicted surgery remaining time. This Task A model is \textbf{frozen during Task B training} (inference only), and its predictions are concatenated to CNN features before the LSTM. Critically, we use predicted time rather than ground-truth elapsed time, testing whether Task A estimates provide useful context in a realistic deployment scenario where true timing is unavailable.
 
 \subsection{Training Strategy}
 
@@ -100,7 +100,7 @@ This multi-task design follows EndoNet~\cite{twinanda2016endonet}, leveraging to
 
 \textbf{Regularisation:} We combine dropout between LSTM layers~\cite{gal2016dropout}, weight decay, early stopping, and partial CNN freezing to prevent overfitting.
 
-\textbf{Data Augmentation:} Random cropping, horizontal flipping, and colour jitter simulate OR visual variations. Vertical flipping is not used as surgical orientation is clinically meaningful.
+\textbf{Data Augmentation:} Following standard practices in surgical video analysis~\cite{twinanda2016endonet}, we apply random cropping, horizontal flipping, and colour jitter to simulate OR visual variations. Vertical flipping is not used as surgical orientation is clinically meaningful.
 
 % ============================================================================
 % EXPERIMENTS
@@ -295,6 +295,9 @@ Loshchilov, I., Hutter, F.: Decoupled weight decay regularization. In: ICLR (201
 
 \bibitem{gal2016dropout}
 Gal, Y., Ghahramani, Z.: A theoretically grounded application of dropout in recurrent neural networks. In: NeurIPS. pp. 1019--1027 (2016)
+
+\bibitem{hochreiter1997lstm}
+Hochreiter, S., Schmidhuber, J.: Long short-term memory. Neural Computation \textbf{9}(8), 1735--1780 (1997)
 
 \end{thebibliography}
 
