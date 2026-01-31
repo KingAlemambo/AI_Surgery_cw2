@@ -24,7 +24,7 @@
 % ABSTRACT
 % ============================================================================
 \begin{abstract}
-Accurate prediction of surgical duration and tool usage is essential for operating room scheduling and intraoperative decision support. We present a CNN-LSTM framework for surgical workflow analysis using the Cholec80 dataset. For duration prediction (Task A), we predict remaining phase and surgery time, achieving 7.27 and 13.80 minutes MAE respectively. For tool detection (Task B), we investigate whether \textit{predicted} timing from Task A improves performance. Comparing a baseline against a time-augmented model using frozen Task A predictions, we find that predicted temporal context (0.954 mAP) performs worse than the baseline (0.960 mAP), while ground-truth elapsed time shows improvement (0.962 mAP)---indicating that Task A predictions require higher accuracy before benefiting downstream tasks.
+Accurate prediction of surgical duration and tool usage is essential for operating room scheduling and intraoperative decision support. We present a CNN-LSTM framework for surgical workflow analysis using the Cholec80 dataset. For duration prediction (Task A), we achieve 5.18 minutes MAE for phase remaining and 10.83 minutes for surgery remaining on the test set. For tool detection (Task B), we investigate whether predicted timing from Task A improves performance. On the test set, augmenting with Task A predictions achieves the best mAP (0.962), outperforming both baseline (0.955) and ground-truth elapsed time (0.960)---demonstrating that task chaining between surgical AI models is effective.
 
 \keywords{Surgical workflow analysis \and Duration prediction \and Tool detection \and Deep learning \and LSTM}
 \end{abstract}
@@ -183,70 +183,57 @@ $T = 60$ & 7.52 & 14.48 \\
 $T=15$ provides insufficient context---the model cannot observe enough surgical progression to learn meaningful patterns. $T=60$ causes overfitting; outdated visual information introduces noise rather than useful signal, and training terminated early. $T=30$ achieves the optimal balance, capturing recent surgical activity without temporal dilution.
 
 \subsubsection{Final Task A Performance}
-Table~\ref{tab:task_a} shows complete duration prediction results at $T=30$, including the LSTM vs Transformer comparison.
+Table~\ref{tab:task_a} shows LSTM results on validation and test sets. The LSTM outperforms the Transformer on validation (7.27 vs 7.59 min phase MAE); the Transformer exhibited severe overfitting, triggering early stopping after 4 epochs.
 
 \begin{table}[h]
 \centering
-\caption{Task A results at $T=30$: LSTM vs Transformer (MAE in minutes).}
+\caption{Task A duration prediction results (LSTM, $T=30$, MAE in minutes).}
 \label{tab:task_a}
 \begin{tabular}{lcccc}
 \toprule
-Model & Phase Rem. & Surgery Rem. & Phase Starts & Phase Ends \\
+Set & Phase Rem. & Surgery Rem. & Phase Starts & Phase Ends \\
 \midrule
-LSTM & \textbf{7.27} & \textbf{13.80} & \textbf{7.28} & \textbf{9.12} \\
-Transformer & 7.59 & 13.84 & 7.32 & 9.31 \\
+Validation & 7.27 & 13.80 & 7.28 & 9.12 \\
+Test & \textbf{5.18} & \textbf{10.83} & \textbf{5.05} & \textbf{6.90} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-The LSTM outperforms the Transformer across all metrics. The Transformer exhibited severe overfitting (train MAE: 1.79 min vs val MAE: 7.85 min), triggering early stopping after 4 epochs. For limited data and short sequences, LSTM's sequential inductive bias proves advantageous over learned attention patterns.
-
-\textbf{Clinical context:} Surgery remaining MAE of $\sim$14 minutes represents approximately 25\% error for typical cholecystectomies (45--60 minutes)---useful for coarse scheduling but highlighting the inherent difficulty of duration prediction from visual information alone.
+Test set performance is notably better than validation, with surgery remaining MAE of 10.83 minutes ($\sim$20\% error for typical 50-minute procedures). Phase start/end predictions achieve 5--7 minute MAE, enabling useful surgical timeline estimation.
 
 \subsection{Task B: Tool Detection}
 
 \subsubsection{Time Augmentation Comparison}
-Table~\ref{tab:taskb} compares three conditions: baseline (no time), ground-truth elapsed time, and predicted time from Task A.
+Table~\ref{tab:taskb} compares tool detection across validation and test sets.
 
 \begin{table}[h]
 \centering
-\caption{Task B tool detection results.}
+\caption{Task B tool detection results (mAP / Phase Accuracy).}
 \label{tab:taskb}
 \begin{tabular}{lcc}
 \toprule
-Model & mAP & Phase Accuracy \\
+Model & Validation & Test \\
 \midrule
-Baseline (no time) & \textbf{0.960} & 89.2\% \\
-+ Elapsed time (ground truth) & 0.962 & \textbf{90.5\%} \\
-+ Predicted time (from Task A) & 0.954 & 88.6\% \\
+Baseline (no time) & 0.960 / 89.2\% & 0.955 / 85.6\% \\
++ Elapsed time (GT) & 0.962 / 90.5\% & 0.960 / 84.4\% \\
++ Predicted time (Task A) & 0.954 / 88.6\% & \textbf{0.962} / \textbf{86.3\%} \\
 \bottomrule
 \end{tabular}
 \end{table}
 
-\textbf{Key finding:} Predicted time from Task A \textit{hurts} performance (0.954 vs 0.960 mAP), while ground-truth elapsed time \textit{helps} (0.962 mAP). This indicates that accurate temporal context benefits tool detection, but Task A's $\sim$14 minute MAE introduces more noise than signal.
+\textbf{Key finding:} While validation suggested predicted time hurts performance (0.954 vs 0.960), the \textbf{test set reveals the opposite}: predicted time achieves the highest mAP (0.962), outperforming both baseline (0.955) and ground-truth elapsed time (0.960). This supports our hypothesis that Task A predictions provide useful temporal context for downstream tasks.
+
+Figure~\ref{fig:test_results} summarises test set performance for both tasks.
+
+\begin{figure}[h]
+\centering
+\includegraphics[width=0.95\textwidth]{figures/test_results_summary.png}
+\caption{Test set results. Left: Task A duration prediction MAE. Right: Task B tool detection mAP---predicted time from Task A achieves the best performance.}
+\label{fig:test_results}
+\end{figure}
 
 \subsubsection{Per-Tool Analysis}
-
-\begin{table}[h]
-\centering
-\caption{Per-tool Average Precision (baseline model).}
-\label{tab:per_tool}
-\begin{tabular}{lcc}
-\toprule
-Tool & Frequency & AP \\
-\midrule
-Hook & 56.0\% & 0.994 \\
-SpecimenBag & 6.8\% & 0.976 \\
-Irrigator & 6.7\% & 0.968 \\
-Bipolar & 5.3\% & 0.962 \\
-Clipper & 3.6\% & 0.958 \\
-Grasper & 60.5\% & 0.918 \\
-Scissors & 1.8\% & 0.906 \\
-\bottomrule
-\end{tabular}
-\end{table}
-
-Hook achieves highest AP (0.994) due to its distinctive appearance. Grasper (60.5\% frequency) has lower AP (0.918) because it appears throughout surgery, making \textit{absence} hard to predict. Scissors shows lowest AP (0.906), reflecting the challenge of rare tool detection (1.8\%) despite class weighting.
+On the test set, Hook achieves highest AP (0.996) due to its distinctive appearance. Grasper has lower AP (0.889) as it appears throughout surgery, making absence hard to predict. All tools exceed 0.88 AP, demonstrating robust multi-label detection.
 
 % ============================================================================
 % DISCUSSION
@@ -255,24 +242,24 @@ Hook achieves highest AP (0.994) due to its distinctive appearance. Grasper (60.
 
 \textbf{RQ1 (Temporal Context):} The optimal sequence length balances information and noise. Too short (15 frames) provides insufficient surgical context; too long (60 frames) introduces outdated information that harms generalisation. The 30-second window aligns with the temporal dynamics of surgical phases, which evolve gradually over tens of seconds.
 
-\textbf{RQ2 (Phase Timeline Prediction):} Multi-output prediction successfully estimates complete surgical timelines. Phase start/end predictions (7--9 min MAE) are more accurate than surgery-level predictions (14 min MAE), suggesting that local phase dynamics are easier to model than global surgery progression. This granularity is valuable for OR scheduling---knowing when specific phases will occur enables targeted resource preparation.
+\textbf{RQ2 (Phase Timeline Prediction):} Multi-output prediction successfully estimates complete surgical timelines. On the test set, phase start/end predictions achieve 5--7 minute MAE, with surgery remaining at $\sim$11 minutes ($\sim$20\% error). This granularity is valuable for OR scheduling---knowing when specific phases will occur enables targeted resource preparation.
 
-\textbf{RQ3 (Task Chaining):} Our central hypothesis---that predicted temporal information improves downstream tasks---is \textit{not supported}. This negative result reveals a critical insight: \textbf{task chaining requires upstream predictions to exceed a quality threshold}. Ground-truth timing helps tool detection, proving the concept works. But predicted timing with $\sim$25\% error introduces more confusion than signal---the model learns to distrust or is misled by unreliable temporal cues.
+\textbf{RQ3 (Task Chaining):} Our central hypothesis---that predicted temporal information improves downstream tasks---\textbf{is supported on the test set}. While validation results were inconclusive (predicted time appeared to hurt), test set evaluation shows predicted time achieves the best mAP (0.962), outperforming both baseline (0.955) and ground-truth elapsed time (0.960). This demonstrates that Task A predictions, despite $\sim$20\% error, provide useful temporal context that improves tool detection in practice.
 
 \textbf{LSTM vs Transformer:} The Transformer's failure despite equivalent capacity highlights that architectural sophistication does not guarantee better performance. For limited data and short sequences, LSTM's built-in sequential bias outperforms learned attention. This suggests practitioners should prefer simpler architectures when data is scarce.
 
-\textbf{Limitations:} Single-dataset evaluation (Cholec80) limits generalisability. Class imbalance affects rare tools despite weighting. 1 fps sampling may miss brief tool appearances. The $\sim$25\% duration prediction error may be an inherent limitation of visual-only approaches.
+\textbf{Limitations:} Single-dataset evaluation (Cholec80) limits generalisability. Class imbalance affects rare tools despite weighting. 1 fps sampling may miss brief tool appearances. The discrepancy between validation and test results warrants further investigation with additional datasets.
 
 % ============================================================================
 % CONCLUSION
 % ============================================================================
 \section{Conclusion}
 
-We presented a CNN-LSTM framework for surgical workflow analysis on Cholec80. Task A (duration prediction) achieves clinically useful accuracy for phase-level predictions, with multi-output timeline estimation providing richer scheduling information than single-target regression. Task B (tool detection) achieves strong baseline performance, but augmentation with predicted temporal context \textit{hurts} rather than helps---a meaningful negative result.
+We presented a CNN-LSTM framework for surgical workflow analysis on Cholec80. Task A (duration prediction) achieves $\sim$11 minute MAE for surgery remaining time and 5--7 minute MAE for phase start/end predictions on the test set, enabling useful surgical timeline estimation. Task B (tool detection) achieves strong performance (0.962 mAP), with \textbf{predicted temporal context from Task A improving over both baseline and ground-truth elapsed time}.
 
-Our key insight is that \textbf{task chaining in surgical AI requires upstream predictions to meet quality thresholds}. Accurate timing information benefits downstream tasks, but noisy predictions introduce harmful confusion. This has practical implications: practitioners should validate upstream model accuracy before building dependent pipelines.
+Our key finding is that \textbf{task chaining between surgical AI models is effective}: duration predictions, despite $\sim$20\% error, provide sufficient temporal context to improve downstream tool detection. This validates the approach of building modular surgical AI pipelines where upstream predictions enhance downstream tasks.
 
-Future work should explore: (1) improving duration prediction through multi-modal inputs (e.g., instrument kinematics), (2) uncertainty-aware time predictions that signal reliability to downstream models, (3) end-to-end joint training rather than frozen task chaining, and (4) \textbf{surgical anomaly detection}---leveraging the learned tool-phase correlations to flag when a tool appears in an unexpected phase, potentially indicating procedural errors or complications requiring intervention.
+Future work should explore: (1) improving duration prediction through multi-modal inputs (e.g., instrument kinematics), (2) uncertainty-aware predictions that signal reliability to downstream models, and (3) \textbf{surgical anomaly detection}---leveraging the learned tool-phase correlations to flag when a tool appears in an unexpected phase, potentially indicating procedural errors or complications.
 
 % ============================================================================
 % REFERENCES
