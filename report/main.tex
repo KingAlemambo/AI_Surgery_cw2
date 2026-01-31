@@ -279,7 +279,7 @@ We presented a CNN-LSTM framework for surgical workflow analysis on Cholec80. Ta
 
 Our key insight is that \textbf{task chaining in surgical AI requires upstream predictions to meet quality thresholds}. Accurate timing information benefits downstream tasks, but noisy predictions introduce harmful confusion. This has practical implications: practitioners should validate upstream model accuracy before building dependent pipelines.
 
-Future work should explore: (1) improving duration prediction through multi-modal inputs (e.g., instrument kinematics), (2) uncertainty-aware time predictions that signal reliability to downstream models, and (3) end-to-end joint training rather than frozen task chaining.
+Future work should explore: (1) improving duration prediction through multi-modal inputs (e.g., instrument kinematics), (2) uncertainty-aware time predictions that signal reliability to downstream models, (3) end-to-end joint training rather than frozen task chaining, and (4) \textbf{surgical anomaly detection}---leveraging the learned tool-phase correlations to flag when a tool appears in an unexpected phase, potentially indicating procedural errors or complications requiring intervention.
 
 % ============================================================================
 % REFERENCES
