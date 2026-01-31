@@ -201,7 +201,7 @@ Transformer & 7.59 & 13.84 & 7.32 & 9.31 \\
 
 The LSTM outperforms the Transformer across all metrics. The Transformer exhibited severe overfitting (train MAE: 1.79 min vs val MAE: 7.85 min), triggering early stopping after 4 epochs. For limited data and short sequences, LSTM's sequential inductive bias proves advantageous over learned attention patterns.
 
-\textbf{Clinical context:} Surgery remaining MAE of $\sim$14 minutes represents $\sim$30\% error for a typical 45-minute cholecystectomy---useful for approximate scheduling but highlighting the inherent difficulty of duration prediction from visual information alone.
+\textbf{Clinical context:} Surgery remaining MAE of $\sim$14 minutes represents approximately 25\% error for typical cholecystectomies (45--60 minutes)---useful for coarse scheduling but highlighting the inherent difficulty of duration prediction from visual information alone.
 
 \subsection{Task B: Tool Detection}
 
@@ -257,11 +257,11 @@ Hook achieves highest AP (0.994) due to its distinctive appearance. Grasper (60.
 
 \textbf{RQ2 (Phase Timeline Prediction):} Multi-output prediction successfully estimates complete surgical timelines. Phase start/end predictions (7--9 min MAE) are more accurate than surgery-level predictions (14 min MAE), suggesting that local phase dynamics are easier to model than global surgery progression. This granularity is valuable for OR scheduling---knowing when specific phases will occur enables targeted resource preparation.
 
-\textbf{RQ3 (Task Chaining):} Our central hypothesis---that predicted temporal information improves downstream tasks---is \textit{not supported}. This negative result reveals a critical insight: \textbf{task chaining requires upstream predictions to exceed a quality threshold}. Ground-truth timing helps tool detection, proving the concept works. But predicted timing with $\sim$30\% error introduces more confusion than signal---the model learns to distrust or is misled by unreliable temporal cues.
+\textbf{RQ3 (Task Chaining):} Our central hypothesis---that predicted temporal information improves downstream tasks---is \textit{not supported}. This negative result reveals a critical insight: \textbf{task chaining requires upstream predictions to exceed a quality threshold}. Ground-truth timing helps tool detection, proving the concept works. But predicted timing with $\sim$25\% error introduces more confusion than signal---the model learns to distrust or is misled by unreliable temporal cues.
 
 \textbf{LSTM vs Transformer:} The Transformer's failure despite equivalent capacity highlights that architectural sophistication does not guarantee better performance. For limited data and short sequences, LSTM's built-in sequential bias outperforms learned attention. This suggests practitioners should prefer simpler architectures when data is scarce.
 
-\textbf{Limitations:} Single-dataset evaluation (Cholec80) limits generalisability. Class imbalance affects rare tools despite weighting. 1 fps sampling may miss brief tool appearances. The 30\% duration prediction error may be an inherent limitation of visual-only approaches.
+\textbf{Limitations:} Single-dataset evaluation (Cholec80) limits generalisability. Class imbalance affects rare tools despite weighting. 1 fps sampling may miss brief tool appearances. The $\sim$25\% duration prediction error may be an inherent limitation of visual-only approaches.
 
 % ============================================================================
 % CONCLUSION
