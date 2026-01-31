@@ -199,14 +199,7 @@ Transformer & 7.59 & 13.84 & 7.32 & 9.31 \\
 \end{tabular}
 \end{table}
 
-The LSTM outperforms the Transformer across all metrics. Figure~\ref{fig:transformer} shows the Transformer's severe overfitting: training MAE drops to 1.79 min while validation remains at 7.85 min. For limited data and short sequences, LSTM's sequential inductive bias proves advantageous over learned attention patterns.
-
-\begin{figure}[h]
-\centering
-\includegraphics[width=0.9\textwidth]{../src/plots_transformer/transformer_seq30_mae.png}
-\caption{Transformer training curves showing severe overfitting: train MAE decreases while validation MAE remains flat, triggering early stopping after 4 epochs.}
-\label{fig:transformer}
-\end{figure}
+The LSTM outperforms the Transformer across all metrics. The Transformer exhibited severe overfitting (train MAE: 1.79 min vs val MAE: 7.85 min), triggering early stopping after 4 epochs. For limited data and short sequences, LSTM's sequential inductive bias proves advantageous over learned attention patterns.
 
 \textbf{Clinical context:} Surgery remaining MAE of $\sim$14 minutes represents $\sim$30\% error for a typical 45-minute cholecystectomy---useful for approximate scheduling but highlighting the inherent difficulty of duration prediction from visual information alone.
 
